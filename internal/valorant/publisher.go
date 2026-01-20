@@ -2,6 +2,7 @@ package valorant
 
 import (
 	"encoding/json"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +32,6 @@ func ApplyPayload(cur domain.State, payload []byte) (domain.State, Topics, error
 		return cur, Topics{}, err
 	}
 
-	// Гарантируем инициализацию карты roster.
 	if cur.MatchInfo.Roster == nil {
 		cur.MatchInfo.Roster = make(map[string]domain.RosterPlayer)
 	}
@@ -47,6 +47,9 @@ func ApplyPayload(cur domain.State, payload []byte) (domain.State, Topics, error
 			cur, touched = applyEvent(cur, e, touched)
 		}
 		cur.UpdatedAt = time.Now().UTC()
+
+		log.Printf("Got events: %#v\n", env.Events)
+
 		return cur, touched, nil
 	}
 
@@ -56,6 +59,8 @@ func ApplyPayload(cur domain.State, payload []byte) (domain.State, Topics, error
 			_ = json.Unmarshal(root["match_info"], &env.MatchInfo)
 		}
 		cur, touched = applyMatchInfo(cur, env.MatchInfo, touched)
+
+		log.Printf("Got match info update: %#v\n", env.MatchInfo)
 	}
 
 	if len(env.GameInfo) > 0 || root["game_info"] != nil {
@@ -63,6 +68,8 @@ func ApplyPayload(cur domain.State, payload []byte) (domain.State, Topics, error
 			_ = json.Unmarshal(root["game_info"], &env.GameInfo)
 		}
 		cur, touched = applyGameInfo(cur, env.GameInfo, touched)
+
+		log.Printf("Got game info update: %#v\n", env.GameInfo)
 	}
 
 	cur.UpdatedAt = time.Now().UTC()
@@ -128,7 +135,6 @@ func applyMatchInfo(cur domain.State, mi map[string]json.RawMessage, touched Top
 			}
 
 		default:
-			// roster_0..roster_9: значение — JSON-строка игрока. :contentReference[oaicite:7]{index=7}
 			if strings.HasPrefix(k, "roster_") {
 				var s string
 				if json.Unmarshal(v, &s) != nil || s == "" {
@@ -169,7 +175,6 @@ func applyEvent(cur domain.State, e RawEvent, touched Topics) (domain.State, Top
 				k.Attacker = NormalizeName(k.Attacker)
 				k.Victim = NormalizeName(k.Victim)
 
-				// assists/ult/weapon — по желанию тоже нормализовать
 				cur.MatchInfo.KillFeed = append(cur.MatchInfo.KillFeed, k)
 				if len(cur.MatchInfo.KillFeed) > 20 {
 					cur.MatchInfo.KillFeed = cur.MatchInfo.KillFeed[len(cur.MatchInfo.KillFeed)-20:]

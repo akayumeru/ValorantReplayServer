@@ -8,11 +8,11 @@ type GameInfo struct {
 }
 
 type Highlight struct {
-	Round     uint8    `json:"round"`
-	Index     uint8    `json:"index"`
-	Path      string   `json:"path"`
-	LengthMs  uint32   `json:"length_ms"`
-	MomentsMs []uint32 `json:"moments_ms"`
+	MatchId          string   `json:"matchId"`
+	StartTime        uint64   `json:"startTime"`
+	MediaPath        string   `json:"mediaPath"`
+	Duration         uint64   `json:"duration"`
+	EventsTimestamps []uint64 `json:"eventsTimestamps"`
 }
 
 type RosterPlayer struct {
@@ -47,13 +47,14 @@ type KillFeedEntry struct {
 	Ult                string `json:"ult"`
 	Headshot           bool   `json:"headshot"`
 	Weapon             string `json:"weapon"`
-	IsAttackerTeammate bool   `json:"is_attacker_teammate"`
-	IsVictimTeammate   bool   `json:"is_victim_teammate"`
+	IsAttackerTeammate bool   `json:"isAttackerTeammate"`
+	IsVictimTeammate   bool   `json:"isVictimTeammate"`
 }
 
 type State struct {
-	UpdatedAt  time.Time           `json:"updated_at"`
-	GameInfo   GameInfo            `json:"game_info"`
-	MatchInfo  MatchInfo           `json:"match_info"`
-	Highlights map[uint8]Highlight `json:"highlights"`
+	UpdatedAt         time.Time   `json:"updatedAt"`
+	GameInfo          GameInfo    `json:"gameInfo"`
+	MatchInfo         MatchInfo   `json:"matchInfo"`
+	PendingHighlights []Highlight `json:"pendingHighlights"`
+	Highlights        []Highlight `json:"highlights"`
 }

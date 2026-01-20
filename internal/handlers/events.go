@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/akayumeru/valreplayserver/internal/domain"
@@ -19,18 +21,6 @@ type EventsHandler struct {
 	Snapshotter *persist.Snapshotter
 }
 
-type GameEvent struct {
-	Type       string `json:"type"`
-	PlayerName string `json:"playerName,omitempty"`
-	Agent      string `json:"agent,omitempty"`
-	Locked     bool   `json:"locked,omitempty"`
-}
-
-type HighlightRecordedEvent struct {
-	ID       string `json:"id"`
-	ClipPath string `json:"clipPath"`
-}
-
 func (h *EventsHandler) HandleGameEvent(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -46,6 +36,7 @@ func (h *EventsHandler) HandleGameEvent(w http.ResponseWriter, r *http.Request) 
 		if applyErr != nil {
 			return cur
 		}
+
 		topics = touched.List()
 		return updated
 	})
@@ -58,6 +49,50 @@ func (h *EventsHandler) HandleGameEvent(w http.ResponseWriter, r *http.Request) 
 			h.Hub.Publish(t, h.Renderer.RenderMatchInfoFragment(next))
 		}
 	}
+
+	h.Snapshotter.RequestSave()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type HighlightRecordRequest struct {
+	MatchId              string `json:"match_id"`
+	MatchInternalId      string `json:"match_internal_id"`
+	ReplayVideoStartTime uint64 `json:"replay_video_start_time"`
+	Duration             uint64 `json:"duration"`
+	RawEvents            []struct {
+		Time uint64 `json:"time"`
+	} `json:"raw_events"`
+	MediaPath     string `json:"media_path"`
+	ThumbnailPath string `json:"thumbnail_path"`
+}
+
+func (h *EventsHandler) HandleHighlightRecord(w http.ResponseWriter, r *http.Request) {
+	var hlrr HighlightRecordRequest
+	if err := json.NewDecoder(r.Body).Decode(&hlrr); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+
+	h.Store.Update(func(cur domain.State) domain.State {
+		timestamps := make([]uint64, len(hlrr.RawEvents))
+
+		for _, ev := range hlrr.RawEvents {
+			timestamps = append(timestamps, ev.Time)
+		}
+
+		hl := domain.Highlight{
+			MatchId:          hlrr.MatchId,
+			StartTime:        hlrr.ReplayVideoStartTime,
+			MediaPath:        hlrr.MediaPath,
+			Duration:         hlrr.Duration,
+			EventsTimestamps: timestamps,
+		}
+
+		log.Printf("Got highlight record: %#v\n", hl)
+
+		cur.PendingHighlights = append(cur.PendingHighlights, hl)
+		return cur
+	})
 
 	h.Snapshotter.RequestSave()
 	w.WriteHeader(http.StatusNoContent)

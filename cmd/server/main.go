@@ -59,8 +59,8 @@ func main() {
 	mux := http.NewServeMux()
 
 	// events
-	mux.HandleFunc("POST /events/handle_game_event", events.HandleGameEvent)
-	//mux.HandleFunc("POST /events/highlight_recorded", events.HighlightRecorded)
+	mux.HandleFunc("POST /events/game_event", events.HandleGameEvent)
+	mux.HandleFunc("POST /events/highlight_record", events.HandleHighlightRecord)
 
 	// screens
 	mux.HandleFunc("GET /screens/player_picks", screens.PlayerPicksPage)
