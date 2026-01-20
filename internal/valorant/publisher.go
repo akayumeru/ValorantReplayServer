@@ -133,6 +133,10 @@ func applyMatchInfo(cur domain.State, mi map[string]json.RawMessage, touched Top
 			if json.Unmarshal(v, &s) == nil {
 				cur.MatchInfo.RoundPhase = s
 				cur.MatchInfo.RoundPhaseStartedAt = time.Now().UTC()
+
+				if cur.MatchInfo.RoundPhase == "combat" {
+					cur.AwaitingHighlightsCount = 0
+				}
 				touched.MatchInfo = true
 			}
 

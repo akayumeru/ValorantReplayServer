@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/akayumeru/valreplayserver/internal/handlers"
 	"github.com/akayumeru/valreplayserver/internal/persist"
 	"github.com/akayumeru/valreplayserver/internal/render"
+	"github.com/akayumeru/valreplayserver/internal/replays"
 	"github.com/akayumeru/valreplayserver/internal/store"
 	"github.com/akayumeru/valreplayserver/internal/stream"
 
@@ -43,16 +45,31 @@ func main() {
 		log.Fatalf("renderer init failed: %v", err)
 	}
 
-	events := &handlers.EventsHandler{
-		Store:       st,
-		Hub:         hub,
-		Renderer:    renderer,
-		Snapshotter: snapshotter,
+	addr := "127.0.0.1:8080"
+	baseUrl := &url.URL{Scheme: "http", Host: addr}
+
+	replayBuilder := &replays.Builder{
+		Store:   st,
+		BaseURL: baseUrl,
 	}
+
+	events := &handlers.EventsHandler{
+		Store:         st,
+		Hub:           hub,
+		Renderer:      renderer,
+		Snapshotter:   snapshotter,
+		ReplayBuilder: replayBuilder,
+	}
+
 	screens := &handlers.ScreensHandler{
 		Store:    st,
 		Hub:      hub,
 		Renderer: renderer,
+	}
+
+	replayStreamer := &replays.Streamer{
+		Store:     st,
+		FFmpegBin: "ffmpeg.exe",
 	}
 
 	go func() {
@@ -72,6 +89,9 @@ func main() {
 	// streams
 	mux.HandleFunc("GET /screens/player_picks/stream", screens.PlayerPicksStream)
 	mux.HandleFunc("GET /screens/match_info/stream", screens.MatchInfoStream)
+
+	// replays
+	mux.HandleFunc("GET /replay.ts", replayStreamer.HandleStream)
 
 	handler := cors.AllowAll().Handler(mux)
 

@@ -9,16 +9,18 @@ import (
 	"github.com/akayumeru/valreplayserver/internal/domain"
 	"github.com/akayumeru/valreplayserver/internal/persist"
 	"github.com/akayumeru/valreplayserver/internal/render"
+	"github.com/akayumeru/valreplayserver/internal/replays"
 	"github.com/akayumeru/valreplayserver/internal/store"
 	"github.com/akayumeru/valreplayserver/internal/stream"
 	"github.com/akayumeru/valreplayserver/internal/valorant"
 )
 
 type EventsHandler struct {
-	Store       *store.StateStore
-	Hub         *stream.Hub
-	Renderer    *render.Renderer
-	Snapshotter *persist.Snapshotter
+	Store         *store.StateStore
+	Hub           *stream.Hub
+	Renderer      *render.Renderer
+	Snapshotter   *persist.Snapshotter
+	ReplayBuilder *replays.Builder
 }
 
 func (h *EventsHandler) HandleGameEvent(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +75,7 @@ func (h *EventsHandler) HandleHighlightRecord(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	h.Store.Update(func(cur domain.State) domain.State {
+	next := h.Store.Update(func(cur domain.State) domain.State {
 		timestamps := make([]uint64, len(hlrr.RawEvents))
 
 		for _, ev := range hlrr.RawEvents {
@@ -91,14 +93,20 @@ func (h *EventsHandler) HandleHighlightRecord(w http.ResponseWriter, r *http.Req
 		log.Printf("Got highlight record: %#v\n", hl)
 
 		cur.PendingHighlights = append(cur.PendingHighlights, hl)
-		cur.AwaitingHighlightsCount -= uint32(len(timestamps))
-
-		if cur.AwaitingHighlightsCount == 0 && cur.MatchInfo.RoundPhase != "combat" {
-			// TODO: start replay
+		if int(cur.AwaitingHighlightsCount)-len(timestamps) >= 0 {
+			cur.AwaitingHighlightsCount -= uint32(len(timestamps))
+		} else {
+			cur.AwaitingHighlightsCount = 0
 		}
 
 		return cur
 	})
+
+	if next.AwaitingHighlightsCount == 0 && next.MatchInfo.RoundPhase != "combat" && len(next.PendingHighlights) > 0 {
+		_, replayUrl := h.ReplayBuilder.CreateReplay()
+		log.Printf("New replay created, replay url: %s\n", replayUrl)
+		// TODO: start replay
+	}
 
 	h.Snapshotter.RequestSave()
 	w.WriteHeader(http.StatusNoContent)
