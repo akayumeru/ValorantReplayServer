@@ -15,6 +15,8 @@ import (
 	"github.com/akayumeru/valreplayserver/internal/render"
 	"github.com/akayumeru/valreplayserver/internal/store"
 	"github.com/akayumeru/valreplayserver/internal/stream"
+
+	"github.com/rs/cors"
 )
 
 func main() {
@@ -70,9 +72,11 @@ func main() {
 	mux.HandleFunc("GET /screens/prematch/stream", screens.PrematchStream)
 	mux.HandleFunc("GET /screens/match_results/stream", screens.MatchResultsStream)
 
+	handler := cors.AllowAll().Handler(mux)
+
 	srv := &http.Server{
 		Addr:              "127.0.0.1:8080",
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
