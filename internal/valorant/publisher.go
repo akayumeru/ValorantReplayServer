@@ -123,6 +123,7 @@ func applyMatchInfo(cur domain.State, mi map[string]json.RawMessage, touched Top
 			if json.Unmarshal(v, &s) == nil {
 				if n, err := strconv.Atoi(s); err == nil {
 					cur.MatchInfo.RoundNumber = n
+					cur.MatchInfo.RoundStartedAt = time.Now().UTC()
 					touched.MatchInfo = true
 				}
 			}
@@ -131,6 +132,7 @@ func applyMatchInfo(cur domain.State, mi map[string]json.RawMessage, touched Top
 			var s string
 			if json.Unmarshal(v, &s) == nil {
 				cur.MatchInfo.RoundPhase = s
+				cur.MatchInfo.RoundPhaseStartedAt = time.Now().UTC()
 				touched.MatchInfo = true
 			}
 
@@ -179,6 +181,8 @@ func applyEvent(cur domain.State, e RawEvent, touched Topics) (domain.State, Top
 				if len(cur.MatchInfo.KillFeed) > 20 {
 					cur.MatchInfo.KillFeed = cur.MatchInfo.KillFeed[len(cur.MatchInfo.KillFeed)-20:]
 				}
+
+				cur.AwaitingHighlightsCount++
 
 				touched.MatchInfo = true
 			}

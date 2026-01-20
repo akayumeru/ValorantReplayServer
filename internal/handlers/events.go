@@ -91,6 +91,12 @@ func (h *EventsHandler) HandleHighlightRecord(w http.ResponseWriter, r *http.Req
 		log.Printf("Got highlight record: %#v\n", hl)
 
 		cur.PendingHighlights = append(cur.PendingHighlights, hl)
+		cur.AwaitingHighlightsCount -= uint32(len(timestamps))
+
+		if cur.AwaitingHighlightsCount == 0 && cur.MatchInfo.RoundPhase != "combat" {
+			// TODO: start replay
+		}
+
 		return cur
 	})
 

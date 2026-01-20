@@ -23,7 +23,10 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	initial := domain.State{}
+	initial := domain.State{
+		AwaitingHighlightsCount: 0,
+		CurrentReplayId:         0,
+	}
 	st := store.NewStateStore(initial)
 
 	snapshotter := persist.NewSnapshotter("./state.json", st, 3*time.Second)

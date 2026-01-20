@@ -1,6 +1,9 @@
 package valorant
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 func NormalizeName(s string) string {
 	i := strings.IndexByte(s, '#')
@@ -41,6 +44,13 @@ var AgentByInternal = map[string]string{
 	"Nox":          "Vyse",
 	"Cashew":       "Tejo",
 	"Terra":        "Waylay",
+}
+
+var PhaseDuration = map[string]time.Duration{
+	"shopping": 30 * time.Second,
+	"combat":   100 * time.Second,
+	"end":      7 * time.Second,
+	"game_end": 7 * time.Second,
 }
 
 func NormalizeAgent(internal string) string {
