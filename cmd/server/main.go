@@ -26,7 +26,7 @@ func main() {
 	initial := domain.State{}
 	st := store.NewStateStore(initial)
 
-	snapshotter := persist.NewSnapshotter("state.json", st, 750*time.Millisecond)
+	snapshotter := persist.NewSnapshotter("./state.json", st, 3*time.Second)
 	if loaded, ok, err := snapshotter.LoadOnStartup(); err != nil {
 		log.Fatalf("snapshot load failed: %v", err)
 	} else if ok {
@@ -64,13 +64,11 @@ func main() {
 
 	// screens
 	mux.HandleFunc("GET /screens/player_picks", screens.PlayerPicksPage)
-	mux.HandleFunc("GET /screens/prematch", screens.PrematchPage)
-	mux.HandleFunc("GET /screens/match_results", screens.MatchResultsPage)
+	mux.HandleFunc("GET /screens/match_info", screens.MatchInfoPage)
 
 	// streams
 	mux.HandleFunc("GET /screens/player_picks/stream", screens.PlayerPicksStream)
-	mux.HandleFunc("GET /screens/prematch/stream", screens.PrematchStream)
-	mux.HandleFunc("GET /screens/match_results/stream", screens.MatchResultsStream)
+	mux.HandleFunc("GET /screens/match_info/stream", screens.MatchInfoStream)
 
 	handler := cors.AllowAll().Handler(mux)
 

@@ -10,7 +10,7 @@ import (
 
 type Renderer struct {
 	playerPicksPage  *template.Template
-	prematchPage     *template.Template
+	matchInfoPage    *template.Template
 	matchResultsPage *template.Template
 }
 
@@ -19,19 +19,15 @@ func NewRenderer() (*Renderer, error) {
 	if err != nil {
 		return nil, err
 	}
-	pm, err := template.ParseFiles("web/templates/screens/prematch.html")
-	if err != nil {
-		return nil, err
-	}
-	mr, err := template.ParseFiles("web/templates/screens/match_results.html")
+
+	mi, err := template.ParseFiles("web/templates/screens/match_info.html")
 	if err != nil {
 		return nil, err
 	}
 
 	return &Renderer{
-		playerPicksPage:  pp,
-		prematchPage:     pm,
-		matchResultsPage: mr,
+		playerPicksPage: pp,
+		matchInfoPage:   mi,
 	}, nil
 }
 
@@ -39,12 +35,8 @@ func (r *Renderer) RenderPlayerPicksPage(st domain.State) ([]byte, error) {
 	return execute(r.playerPicksPage, st)
 }
 
-func (r *Renderer) RenderPrematchPage(st domain.State) ([]byte, error) {
-	return execute(r.prematchPage, st)
-}
-
-func (r *Renderer) RenderMatchResultsPage(st domain.State) ([]byte, error) {
-	return execute(r.matchResultsPage, st)
+func (r *Renderer) RenderMatchInfoPage(st domain.State) ([]byte, error) {
+	return execute(r.matchInfoPage, st)
 }
 
 func (r *Renderer) RenderPlayerPicksFragment(st domain.State) []byte {
@@ -52,18 +44,25 @@ func (r *Renderer) RenderPlayerPicksFragment(st domain.State) []byte {
 
 	b.WriteString(`<div id="content">`)
 	b.WriteString(`<h1>Player picks</h1>`)
-	b.WriteString(`<ul>`)
-	for _, p := range st.Picks {
-		b.WriteString(`<li>`)
-		b.WriteString(template.HTMLEscapeString(p.PlayerName))
-		b.WriteString(` — `)
-		b.WriteString(template.HTMLEscapeString(p.Agent))
-		if p.Locked {
-			b.WriteString(` (locked)`)
-		}
-		b.WriteString(`</li>`)
-	}
-	b.WriteString(`</ul>`)
+	b.WriteString(`</div>`)
+
+	return b.Bytes()
+}
+
+func (r *Renderer) RenderMatchInfoFragment(st domain.State) []byte {
+	var b bytes.Buffer
+
+	b.WriteString(`<div id="content">`)
+	b.WriteString(`<h1>Match Info</h1>`)
+	b.WriteString(`<p>Map: `)
+	b.WriteString(template.HTMLEscapeString(st.MatchInfo.Map))
+	b.WriteString(`</p>`)
+	b.WriteString(`<p>Round: `)
+	b.WriteString(template.HTMLEscapeString(strconv.Itoa(st.MatchInfo.RoundNumber)))
+	b.WriteString(` (`)
+	b.WriteString(template.HTMLEscapeString(string(st.MatchInfo.RoundPhase)))
+	b.WriteString(`)`)
+	b.WriteString(`</p>`)
 	b.WriteString(`</div>`)
 
 	return b.Bytes()
@@ -75,8 +74,4 @@ func execute(t *template.Template, st domain.State) ([]byte, error) {
 		return nil, err
 	}
 	return b.Bytes(), nil
-}
-
-func intToString(v int) string {
-	return template.HTMLEscapeString(strconv.Itoa(v))
 }

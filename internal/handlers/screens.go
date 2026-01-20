@@ -26,18 +26,8 @@ func (h *ScreensHandler) PlayerPicksPage(w http.ResponseWriter, r *http.Request)
 	_, _ = w.Write(page)
 }
 
-func (h *ScreensHandler) PrematchPage(w http.ResponseWriter, r *http.Request) {
-	page, err := h.Renderer.RenderPrematchPage(h.Store.Get())
-	if err != nil {
-		http.Error(w, "render failed", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(page)
-}
-
-func (h *ScreensHandler) MatchResultsPage(w http.ResponseWriter, r *http.Request) {
-	page, err := h.Renderer.RenderMatchResultsPage(h.Store.Get())
+func (h *ScreensHandler) MatchInfoPage(w http.ResponseWriter, r *http.Request) {
+	page, err := h.Renderer.RenderMatchInfoPage(h.Store.Get())
 	if err != nil {
 		http.Error(w, "render failed", http.StatusInternalServerError)
 		return
@@ -50,12 +40,8 @@ func (h *ScreensHandler) PlayerPicksStream(w http.ResponseWriter, r *http.Reques
 	h.serveSSE(w, r, "player_picks")
 }
 
-func (h *ScreensHandler) PrematchStream(w http.ResponseWriter, r *http.Request) {
-	h.serveSSE(w, r, "prematch")
-}
-
-func (h *ScreensHandler) MatchResultsStream(w http.ResponseWriter, r *http.Request) {
-	h.serveSSE(w, r, "match_results")
+func (h *ScreensHandler) MatchInfoStream(w http.ResponseWriter, r *http.Request) {
+	h.serveSSE(w, r, "match_info")
 }
 
 func (h *ScreensHandler) serveSSE(w http.ResponseWriter, r *http.Request, topic string) {
@@ -76,6 +62,8 @@ func (h *ScreensHandler) serveSSE(w http.ResponseWriter, r *http.Request, topic 
 	switch topic {
 	case "player_picks":
 		first = h.Renderer.RenderPlayerPicksFragment(h.Store.Get())
+	case "match_info":
+		first = h.Renderer.RenderMatchInfoFragment(h.Store.Get())
 	}
 	fmt.Fprintf(w, "event: update\n")
 	fmt.Fprintf(w, "data: %s\n\n", first)

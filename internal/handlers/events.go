@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/akayumeru/valreplayserver/internal/domain"
@@ -9,6 +9,7 @@ import (
 	"github.com/akayumeru/valreplayserver/internal/render"
 	"github.com/akayumeru/valreplayserver/internal/store"
 	"github.com/akayumeru/valreplayserver/internal/stream"
+	"github.com/akayumeru/valreplayserver/internal/valorant"
 )
 
 type EventsHandler struct {
@@ -31,29 +32,33 @@ type HighlightRecordedEvent struct {
 }
 
 func (h *EventsHandler) HandleGameEvent(w http.ResponseWriter, r *http.Request) {
-	var ev GameEvent
-	if err := json.NewDecoder(r.Body).Decode(&ev); err != nil {
-		http.Error(w, "bad json", http.StatusBadRequest)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "read failed", http.StatusBadRequest)
 		return
 	}
 
-	next := h.Store.Update(func(cur domain.State) domain.State {
-		switch ev.Type {
-		case "player_pick":
-			picks := append([]domain.PlayerPick(nil), cur.Picks...)
-			picks = append(picks, domain.PlayerPick{
-				PlayerName: ev.PlayerName,
-				Agent:      ev.Agent,
-				Locked:     ev.Locked,
-			})
-			cur.Picks = picks
+	var topics []string
+	next := h.Store.Update(func(curState domain.State) domain.State {
+		cur := curState
+
+		updated, touched, applyErr := valorant.ApplyPayload(cur, body)
+		if applyErr != nil {
+			return cur
 		}
-		return cur
+		topics = touched.List()
+		return updated
 	})
 
-	h.Hub.Publish("player_picks", h.Renderer.RenderPlayerPicksFragment(next))
+	for _, t := range topics {
+		switch t {
+		case "player_picks":
+			h.Hub.Publish(t, h.Renderer.RenderPlayerPicksFragment(next))
+		case "match_info":
+			h.Hub.Publish(t, h.Renderer.RenderMatchInfoFragment(next))
+		}
+	}
 
 	h.Snapshotter.RequestSave()
-
 	w.WriteHeader(http.StatusNoContent)
 }
