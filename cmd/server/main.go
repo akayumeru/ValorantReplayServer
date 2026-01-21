@@ -93,7 +93,21 @@ func main() {
 	// replays
 	mux.HandleFunc("GET /replay.ts", replayStreamer.HandleStream)
 
-	handler := cors.AllowAll().Handler(mux)
+	handler := cors.New(cors.Options{
+		AllowedOrigins: []string{"*"},
+		AllowedMethods: []string{
+			http.MethodHead,
+			http.MethodGet,
+			http.MethodPost,
+			http.MethodPut,
+			http.MethodPatch,
+			http.MethodDelete,
+		},
+		AllowedHeaders:      []string{"*"},
+		MaxAge:              86400,
+		AllowCredentials:    false,
+		AllowPrivateNetwork: true,
+	}).Handler(mux)
 
 	srv := &http.Server{
 		Addr:              "127.0.0.1:8080",

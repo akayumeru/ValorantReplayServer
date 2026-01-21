@@ -35,10 +35,19 @@ func (b *Builder) CreateReplay() (uint32, string) {
 			newReplays[k] = cp
 		}
 
-		cpPending := make([]domain.Highlight, len(cur.PendingHighlights))
-		copy(cpPending, cur.PendingHighlights)
+		// for uniqueness
+		hlsPending := make(map[uint64]domain.Highlight)
+		for _, hl := range cur.PendingHighlights {
+			hlsPending[hl.StartTime] = hl
+		}
 
-		newReplays[createdID] = cpPending
+		hlsForReplay := make([]domain.Highlight, len(hlsPending))
+
+		for _, hl := range hlsPending {
+			hlsForReplay = append(hlsForReplay, hl)
+		}
+
+		newReplays[createdID] = hlsForReplay
 
 		cur.Replays = newReplays
 		cur.PendingHighlights = nil

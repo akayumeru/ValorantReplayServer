@@ -2,12 +2,12 @@ package valorant
 
 import (
 	"encoding/json"
-	"log"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/akayumeru/valreplayserver/internal/domain"
+	"github.com/akayumeru/valreplayserver/internal/utils"
 )
 
 type Topics struct {
@@ -48,7 +48,7 @@ func ApplyPayload(cur domain.State, payload []byte) (domain.State, Topics, error
 		}
 		cur.UpdatedAt = time.Now().UTC()
 
-		log.Printf("Got events: %#v\n", env.Events)
+		utils.DebugLog("Got events", env.Events)
 
 		return cur, touched, nil
 	}
@@ -60,7 +60,7 @@ func ApplyPayload(cur domain.State, payload []byte) (domain.State, Topics, error
 		}
 		cur, touched = applyMatchInfo(cur, env.MatchInfo, touched)
 
-		log.Printf("Got match info update: %#v\n", env.MatchInfo)
+		utils.DebugLog("Got match info update", env.MatchInfo)
 	}
 
 	if len(env.GameInfo) > 0 || root["game_info"] != nil {
@@ -69,7 +69,7 @@ func ApplyPayload(cur domain.State, payload []byte) (domain.State, Topics, error
 		}
 		cur, touched = applyGameInfo(cur, env.GameInfo, touched)
 
-		log.Printf("Got game info update: %#v\n", env.GameInfo)
+		utils.DebugLog("Got game info update", env.GameInfo)
 	}
 
 	cur.UpdatedAt = time.Now().UTC()

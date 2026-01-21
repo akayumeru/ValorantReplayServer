@@ -12,6 +12,7 @@ import (
 	"github.com/akayumeru/valreplayserver/internal/replays"
 	"github.com/akayumeru/valreplayserver/internal/store"
 	"github.com/akayumeru/valreplayserver/internal/stream"
+	"github.com/akayumeru/valreplayserver/internal/utils"
 	"github.com/akayumeru/valreplayserver/internal/valorant"
 )
 
@@ -92,7 +93,7 @@ func (h *EventsHandler) HandleHighlightRecord(w http.ResponseWriter, r *http.Req
 			EventsTimestamps: timestamps,
 		}
 
-		log.Printf("Got highlight record: %#v\n", hl)
+		utils.DebugLog("Got highlight record", hl)
 		cur.PendingHighlights = append(cur.PendingHighlights, hl)
 
 		if cur.AwaitingLastHighlight && cur.MatchInfo.RoundPhase != "combat" {
