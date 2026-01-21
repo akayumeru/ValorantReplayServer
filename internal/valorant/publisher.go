@@ -135,7 +135,7 @@ func applyMatchInfo(cur domain.State, mi map[string]json.RawMessage, touched Top
 				cur.MatchInfo.RoundPhaseStartedAt = time.Now().UTC()
 
 				if cur.MatchInfo.RoundPhase == "combat" {
-					cur.AwaitingHighlightsCount = 0
+					cur.AwaitingLastHighlight = true
 				}
 				touched.MatchInfo = true
 			}
@@ -185,8 +185,6 @@ func applyEvent(cur domain.State, e RawEvent, touched Topics) (domain.State, Top
 				if len(cur.MatchInfo.KillFeed) > 20 {
 					cur.MatchInfo.KillFeed = cur.MatchInfo.KillFeed[len(cur.MatchInfo.KillFeed)-20:]
 				}
-
-				cur.AwaitingHighlightsCount++
 
 				touched.MatchInfo = true
 			}

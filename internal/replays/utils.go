@@ -15,10 +15,10 @@ func ReplayWindow(mi domain.MatchInfo) (time.Duration, error) {
 
 	dur, ok := valorant.PhaseDuration[mi.RoundPhase]
 	if !ok {
-		return 1 * time.Minute, nil
+		return 30 * time.Second, nil
 	}
 	if mi.RoundPhaseStartedAt.IsZero() {
-		return 1 * time.Minute, nil
+		return 30 * time.Second, nil
 	}
 
 	endsAt := mi.RoundPhaseStartedAt.Add(dur)

@@ -35,10 +35,10 @@ func BuildPlan(window time.Duration, highlights []domain.Highlight, fade time.Du
 	if fade < 0 {
 		fade = 0
 	}
-	fadeSec := math.Min(fade.Seconds(), slotSec*0.4)
+	fadeSec := math.Min(fade.Seconds(), slotSec*0.2)
 
 	// transition overlap compensation
-	clipSec := (windowSec + float64(totalEvents-1)*fadeSec) / float64(totalEvents)
+	clipSec := math.Max((windowSec+float64(totalEvents-1)*fadeSec)/float64(totalEvents), 7.5)
 
 	var clips []Clip
 	for _, h := range highlights {
@@ -47,24 +47,21 @@ func BuildPlan(window time.Duration, highlights []domain.Highlight, fade time.Du
 			continue
 		}
 
-		for _, ev := range h.EventsTimestamps {
-			var offsetMs uint64
-			if h.StartTime != 0 && ev >= h.StartTime {
-				offsetMs = ev - h.StartTime
-			} else {
-				offsetMs = ev
-			}
-			eventSec := float64(offsetMs) / 1000.0
+		for _, evOffset := range h.EventsTimestamps {
+			// offset of highlight
+			evOffsetSec := float64(evOffset) / 1000.0
 
+			// duration per highlight
 			dur := clipSec
 			if dur > highlightDurSec {
 				dur = highlightDurSec
 			}
 
-			start := eventSec - dur/2.0
+			start := evOffsetSec - dur/2.0
 			if start < 0 {
 				start = 0
 			}
+
 			maxStart := highlightDurSec - dur
 			if maxStart < 0 {
 				maxStart = 0
@@ -77,7 +74,7 @@ func BuildPlan(window time.Duration, highlights []domain.Highlight, fade time.Du
 				MediaPath: h.MediaPath,
 				StartSec:  start,
 				DurSec:    dur,
-				SortKeyMs: ev,
+				SortKeyMs: h.StartTime + evOffset,
 			})
 		}
 	}

@@ -54,11 +54,11 @@ type KillFeedEntry struct {
 }
 
 type State struct {
-	UpdatedAt               time.Time              `json:"updatedAt"`
-	GameInfo                GameInfo               `json:"gameInfo"`
-	MatchInfo               MatchInfo              `json:"matchInfo"`
-	AwaitingHighlightsCount uint32                 `json:"awaitingHighlightsCount"`
-	PendingHighlights       []Highlight            `json:"pendingHighlights"`
-	CurrentReplayId         uint32                 `json:"currentReplayId"`
-	Replays                 map[uint32][]Highlight `json:"replays"`
+	UpdatedAt             time.Time              `json:"updatedAt"`
+	GameInfo              GameInfo               `json:"gameInfo"`
+	MatchInfo             MatchInfo              `json:"matchInfo"`
+	AwaitingLastHighlight bool                   `json:"awaitingLastHighlight"`
+	PendingHighlights     []Highlight            `json:"pendingHighlights"`
+	CurrentReplayId       uint32                 `json:"currentReplayId"`
+	Replays               map[uint32][]Highlight `json:"replays"`
 }

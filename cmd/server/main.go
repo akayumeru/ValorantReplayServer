@@ -26,8 +26,8 @@ func main() {
 	defer stop()
 
 	initial := domain.State{
-		AwaitingHighlightsCount: 0,
-		CurrentReplayId:         0,
+		AwaitingLastHighlight: false,
+		CurrentReplayId:       0,
 	}
 	st := store.NewStateStore(initial)
 

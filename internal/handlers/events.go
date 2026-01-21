@@ -75,7 +75,9 @@ func (h *EventsHandler) HandleHighlightRecord(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	next := h.Store.Update(func(cur domain.State) domain.State {
+	var canCreateReplay = false
+
+	h.Store.Update(func(cur domain.State) domain.State {
 		timestamps := make([]uint64, len(hlrr.RawEvents))
 
 		for _, ev := range hlrr.RawEvents {
@@ -91,18 +93,17 @@ func (h *EventsHandler) HandleHighlightRecord(w http.ResponseWriter, r *http.Req
 		}
 
 		log.Printf("Got highlight record: %#v\n", hl)
-
 		cur.PendingHighlights = append(cur.PendingHighlights, hl)
-		if int(cur.AwaitingHighlightsCount)-len(timestamps) >= 0 {
-			cur.AwaitingHighlightsCount -= uint32(len(timestamps))
-		} else {
-			cur.AwaitingHighlightsCount = 0
+
+		if cur.AwaitingLastHighlight && cur.MatchInfo.RoundPhase != "combat" {
+			canCreateReplay = true
+			cur.AwaitingLastHighlight = false
 		}
 
 		return cur
 	})
 
-	if next.AwaitingHighlightsCount == 0 && next.MatchInfo.RoundPhase != "combat" && len(next.PendingHighlights) > 0 {
+	if canCreateReplay {
 		_, replayUrl := h.ReplayBuilder.CreateReplay()
 		log.Printf("New replay created, replay url: %s\n", replayUrl)
 		// TODO: start replay
