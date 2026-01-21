@@ -26,8 +26,14 @@ func main() {
 	defer stop()
 
 	initial := domain.State{
-		AwaitingLastHighlight: false,
-		CurrentReplayId:       0,
+		UpdatedAt: time.Time{},
+		MatchInfo: domain.MatchInfo{
+			Rounds: make(map[int]*domain.Round),
+			Roster: make(map[string]domain.RosterPlayer),
+		},
+		ReplayState: domain.ReplayState{
+			CurrentReplayId: 0,
+		},
 	}
 	st := store.NewStateStore(initial)
 

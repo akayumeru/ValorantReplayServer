@@ -16,7 +16,7 @@ type Clip struct {
 	SortKeyMs uint64
 }
 
-func BuildPlan(window time.Duration, highlights []domain.Highlight, fade time.Duration) ([]Clip, time.Duration, error) {
+func BuildPlan(window time.Duration, highlights []*domain.Highlight, fade time.Duration) ([]Clip, time.Duration, error) {
 	if window <= 0 {
 		return nil, 0, errors.New("window must be > 0")
 	}

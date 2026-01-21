@@ -31,11 +31,13 @@ func (s *Streamer) HandleStream(w http.ResponseWriter, r *http.Request) {
 	replayID := uint32(id64)
 
 	st := s.Store.Get()
-	highlights, ok := st.Replays[replayID]
+	replay, ok := st.ReplayState.Replays[replayID]
 	if !ok {
 		http.Error(w, "replay not found", http.StatusNotFound)
 		return
 	}
+
+	highlights := replay.Highlights
 
 	// calculating replay window
 	window, err := ReplayWindow(st.MatchInfo)

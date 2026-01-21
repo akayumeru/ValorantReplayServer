@@ -57,12 +57,14 @@ func (r *Renderer) RenderMatchInfoFragment(st domain.State) []byte {
 	b.WriteString(`<p>Map: `)
 	b.WriteString(template.HTMLEscapeString(st.MatchInfo.Map))
 	b.WriteString(`</p>`)
-	b.WriteString(`<p>Round: `)
-	b.WriteString(template.HTMLEscapeString(strconv.Itoa(st.MatchInfo.RoundNumber)))
-	b.WriteString(` (`)
-	b.WriteString(template.HTMLEscapeString(string(st.MatchInfo.RoundPhase)))
-	b.WriteString(`)`)
-	b.WriteString(`</p>`)
+	if st.MatchInfo.CurrentRound != nil {
+		b.WriteString(`<p>Round: `)
+		b.WriteString(template.HTMLEscapeString(strconv.Itoa(int(st.MatchInfo.CurrentRound.Number))))
+		b.WriteString(` (`)
+		b.WriteString(template.HTMLEscapeString(string(st.MatchInfo.CurrentRound.LastPhase)))
+		b.WriteString(`)`)
+		b.WriteString(`</p>`)
+	}
 	b.WriteString(`</div>`)
 
 	return b.Bytes()

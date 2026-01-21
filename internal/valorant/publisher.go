@@ -13,6 +13,7 @@ import (
 type Topics struct {
 	PlayerPicks bool
 	MatchInfo   bool
+	Replays     bool
 }
 
 func (t Topics) List() []string {
@@ -22,6 +23,9 @@ func (t Topics) List() []string {
 	}
 	if t.MatchInfo {
 		out = append(out, "match_info")
+	}
+	if t.Replays {
+		out = append(out, "replays")
 	}
 	return out
 }
@@ -72,6 +76,15 @@ func ApplyPayload(cur domain.State, payload []byte) (domain.State, Topics, error
 		utils.DebugLog("Got game info update", env.GameInfo)
 	}
 
+	if len(env.PlayerInfo) > 0 || root["me"] != nil {
+		if len(env.PlayerInfo) == 0 && root["me"] != nil {
+			_ = json.Unmarshal(root["me"], &env.PlayerInfo)
+		}
+		cur = applyPlayerInfo(cur, env.PlayerInfo)
+
+		utils.DebugLog("Got player info update", env.PlayerInfo)
+	}
+
 	cur.UpdatedAt = time.Now().UTC()
 	return cur, touched, nil
 }
@@ -85,13 +98,33 @@ func applyGameInfo(cur domain.State, gi map[string]json.RawMessage, touched Topi
 			touched.MatchInfo = true
 		}
 	}
+
 	if v, ok := gi["state"]; ok {
 		var st string
 		if json.Unmarshal(v, &st) == nil && st != "" {
 			cur.GameInfo.State = st
 		}
 	}
+
 	return cur, touched
+}
+
+func applyPlayerInfo(cur domain.State, pi map[string]json.RawMessage) domain.State {
+	if v, ok := pi["player_name"]; ok {
+		var pn string
+		if json.Unmarshal(v, &pn) == nil && pn != "" {
+			cur.PlayerInfo.Name = pn
+		}
+	}
+
+	if v, ok := pi["player_id"]; ok {
+		var pid string
+		if json.Unmarshal(v, &pid) == nil && pid != "" {
+			cur.PlayerInfo.ID = pid
+		}
+	}
+
+	return cur
 }
 
 func applyMatchInfo(cur domain.State, mi map[string]json.RawMessage, touched Topics) (domain.State, Topics) {
@@ -122,8 +155,26 @@ func applyMatchInfo(cur domain.State, mi map[string]json.RawMessage, touched Top
 			var s string
 			if json.Unmarshal(v, &s) == nil {
 				if n, err := strconv.Atoi(s); err == nil {
-					cur.MatchInfo.RoundNumber = n
-					cur.MatchInfo.RoundStartedAt = time.Now().UTC()
+					if cur.MatchInfo.CurrentRound == nil || cur.MatchInfo.CurrentRound.Number != n {
+						newRound := &domain.Round{
+							Number:          n,
+							StartedAt:       time.Now().UTC(),
+							EndedAt:         time.Now().UTC().Add(PhaseDuration["shopping"] + PhaseDuration["combat"] + PhaseDuration["end"] + 1*time.Second),
+							LastPhase:       "shopping",
+							PhaseStartedAt:  time.Now().UTC(),
+							HighlightsCount: 0,
+						}
+						if cur.MatchInfo.Rounds == nil {
+							cur.MatchInfo.Rounds = make(map[int]*domain.Round)
+						}
+						cur.MatchInfo.Rounds[newRound.Number] = newRound
+						if cur.MatchInfo.CurrentRound != nil {
+							cur.MatchInfo.CurrentRound.EndedAt = newRound.StartedAt.Add(-1 * time.Millisecond)
+						}
+						cur.MatchInfo.CurrentRound = newRound
+
+						touched.Replays = true
+					}
 					touched.MatchInfo = true
 				}
 			}
@@ -131,13 +182,11 @@ func applyMatchInfo(cur domain.State, mi map[string]json.RawMessage, touched Top
 		case k == "round_phase":
 			var s string
 			if json.Unmarshal(v, &s) == nil {
-				cur.MatchInfo.RoundPhase = s
-				cur.MatchInfo.RoundPhaseStartedAt = time.Now().UTC()
-
-				if cur.MatchInfo.RoundPhase == "combat" {
-					cur.AwaitingLastHighlight = true
+				if cur.MatchInfo.CurrentRound != nil {
+					cur.MatchInfo.CurrentRound.LastPhase = s
+					cur.MatchInfo.CurrentRound.PhaseStartedAt = time.Now().UTC()
+					touched.MatchInfo = true
 				}
-				touched.MatchInfo = true
 			}
 
 		default:
@@ -171,6 +220,9 @@ func applyEvent(cur domain.State, e RawEvent, touched Topics) (domain.State, Top
 		touched.MatchInfo = true
 
 	case "match_end":
+		cur.MatchInfo.Rounds = nil
+		cur.MatchInfo.KillFeed = nil
+		cur.MatchInfo.CurrentRound = nil
 		touched.MatchInfo = true
 
 	case "kill_feed":
@@ -180,6 +232,10 @@ func applyEvent(cur domain.State, e RawEvent, touched Topics) (domain.State, Top
 			if json.Unmarshal([]byte(s), &k) == nil {
 				k.Attacker = NormalizeName(k.Attacker)
 				k.Victim = NormalizeName(k.Victim)
+
+				if k.Attacker == cur.PlayerInfo.Name {
+					cur.MatchInfo.CurrentRound.HighlightsCount++
+				}
 
 				cur.MatchInfo.KillFeed = append(cur.MatchInfo.KillFeed, k)
 				if len(cur.MatchInfo.KillFeed) > 20 {

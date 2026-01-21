@@ -50,6 +50,8 @@ func (h *EventsHandler) HandleGameEvent(w http.ResponseWriter, r *http.Request) 
 			h.Hub.Publish(t, h.Renderer.RenderPlayerPicksFragment(next))
 		case "match_info":
 			h.Hub.Publish(t, h.Renderer.RenderMatchInfoFragment(next))
+		case "replays":
+			h.tryToCreateReplay(next)
 		}
 	}
 
@@ -57,9 +59,18 @@ func (h *EventsHandler) HandleGameEvent(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *EventsHandler) tryToCreateReplay(cur domain.State) {
+	_, replayUrl := h.ReplayBuilder.CreateReplay()
+	if replayUrl != "" {
+		log.Printf("New replay created, replay url: %s\n", replayUrl)
+	}
+	// TODO: start replay
+}
+
 type HighlightRecordRequest struct {
 	MatchId              string `json:"match_id"`
 	MatchInternalId      string `json:"match_internal_id"`
+	StartTime            uint64 `json:"start_time"`
 	ReplayVideoStartTime uint64 `json:"replay_video_start_time"`
 	Duration             uint64 `json:"duration"`
 	RawEvents            []struct {
@@ -78,36 +89,46 @@ func (h *EventsHandler) HandleHighlightRecord(w http.ResponseWriter, r *http.Req
 
 	var canCreateReplay = false
 
-	h.Store.Update(func(cur domain.State) domain.State {
+	next := h.Store.Update(func(cur domain.State) domain.State {
 		timestamps := make([]uint64, len(hlrr.RawEvents))
 
 		for _, ev := range hlrr.RawEvents {
-			timestamps = append(timestamps, ev.Time)
+			if ev.Time != 0 {
+				timestamps = append(timestamps, ev.Time)
+			}
 		}
 
-		hl := domain.Highlight{
+		hl := &domain.Highlight{
 			MatchId:          hlrr.MatchId,
-			StartTime:        hlrr.ReplayVideoStartTime,
+			StartTime:        hlrr.StartTime,
 			MediaPath:        hlrr.MediaPath,
 			Duration:         hlrr.Duration,
 			EventsTimestamps: timestamps,
 		}
 
-		utils.DebugLog("Got highlight record", hl)
-		cur.PendingHighlights = append(cur.PendingHighlights, hl)
+		var roundNumber uint64 = 0
 
-		if cur.AwaitingLastHighlight && cur.MatchInfo.RoundPhase != "combat" {
+		for _, round := range cur.MatchInfo.Rounds {
+			if round.StartedAt.UnixMilli() >= int64(hl.StartTime) && (round.EndedAt.UnixMilli() > int64(hl.StartTime)) {
+				roundNumber = uint64(round.Number)
+				break
+			}
+		}
+
+		hl.Round = roundNumber
+
+		utils.DebugLog("Got highlight record", hl)
+		cur.ReplayState.PendingHighlights = append(cur.ReplayState.PendingHighlights, hl)
+
+		if uint64(cur.MatchInfo.CurrentRound.Number) == roundNumber+1 && len(cur.ReplayState.PendingHighlights) > 0 {
 			canCreateReplay = true
-			cur.AwaitingLastHighlight = false
 		}
 
 		return cur
 	})
 
 	if canCreateReplay {
-		_, replayUrl := h.ReplayBuilder.CreateReplay()
-		log.Printf("New replay created, replay url: %s\n", replayUrl)
-		// TODO: start replay
+		h.tryToCreateReplay(next)
 	}
 
 	h.Snapshotter.RequestSave()

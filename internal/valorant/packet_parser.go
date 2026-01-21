@@ -10,9 +10,10 @@ type RawEvent struct {
 }
 
 type Envelope struct {
-	Events    []RawEvent                 `json:"events"`
-	MatchInfo map[string]json.RawMessage `json:"match_info"`
-	GameInfo  map[string]json.RawMessage `json:"game_info"`
+	Events     []RawEvent                 `json:"events"`
+	MatchInfo  map[string]json.RawMessage `json:"match_info"`
+	GameInfo   map[string]json.RawMessage `json:"game_info"`
+	PlayerInfo map[string]json.RawMessage `json:"me"`
 }
 
 func ParseEnvelope(b []byte) (Envelope, map[string]json.RawMessage, error) {

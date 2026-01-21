@@ -16,45 +16,68 @@ type Builder struct {
 
 func (b *Builder) CreateReplay() (uint32, string) {
 	var createdID uint32
+	var notCreated bool
 
 	b.Store.Update(func(cur domain.State) domain.State {
+		notCreated = true
 		if _, err := ReplayWindow(cur.MatchInfo); err != nil {
 			return cur
 		}
 
-		if len(cur.PendingHighlights) == 0 || cur.CurrentReplayId == math.MaxUint32 {
+		if len(cur.ReplayState.PendingHighlights) == 0 || cur.ReplayState.CurrentReplayId == math.MaxUint32 {
 			return cur
 		}
 
-		createdID = cur.CurrentReplayId
+		createdID = cur.ReplayState.CurrentReplayId
 
-		newReplays := make(map[uint32][]domain.Highlight, len(cur.Replays)+1)
-		for k, v := range cur.Replays {
-			cp := make([]domain.Highlight, len(v))
-			copy(cp, v)
-			newReplays[k] = cp
+		hlMomentsTotal := 0
+		var hlRounds []uint64
+		for _, hl := range cur.ReplayState.PendingHighlights {
+			hlMomentsTotal += len(hl.EventsTimestamps)
+			hlRounds = append(hlRounds, hl.Round)
+		}
+
+		var roundMomentsTotal uint32 = 0
+		for _, roundNumber := range hlRounds {
+			roundMomentsTotal += cur.MatchInfo.Rounds[int(roundNumber)-1].HighlightsCount
+		}
+
+		if uint32(hlMomentsTotal) < roundMomentsTotal {
+			return cur
 		}
 
 		// for uniqueness
-		hlsPending := make(map[uint64]domain.Highlight)
-		for _, hl := range cur.PendingHighlights {
+		hlsPending := make(map[uint64]*domain.Highlight)
+		for _, hl := range cur.ReplayState.PendingHighlights {
 			hlsPending[hl.StartTime] = hl
 		}
 
-		hlsForReplay := make([]domain.Highlight, len(hlsPending))
+		hlsForReplay := make([]*domain.Highlight, len(hlsPending))
 
 		for _, hl := range hlsPending {
 			hlsForReplay = append(hlsForReplay, hl)
 		}
 
-		newReplays[createdID] = hlsForReplay
+		replay := domain.Replay{
+			RoundNumber: cur.MatchInfo.CurrentRound.Number,
+			Highlights:  hlsForReplay,
+		}
 
-		cur.Replays = newReplays
-		cur.PendingHighlights = nil
-		cur.CurrentReplayId++
+		if cur.ReplayState.Replays == nil {
+			cur.ReplayState.Replays = make(map[uint32]domain.Replay)
+		}
+
+		cur.ReplayState.Replays[createdID] = replay
+		cur.ReplayState.PendingHighlights = nil
+		cur.ReplayState.CurrentReplayId++
+		notCreated = false
 
 		return cur
 	})
+
+	if notCreated {
+		return 0, ""
+	}
 
 	u := *b.BaseURL
 	u.Path = "/replay.ts"
