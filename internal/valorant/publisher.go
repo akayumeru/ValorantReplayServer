@@ -224,14 +224,15 @@ func applyEvent(cur domain.State, e RawEvent, touched Topics) (domain.State, Top
 		cur.MatchInfo.KillFeed = nil
 		cur.MatchInfo.CurrentRound = nil
 		touched.MatchInfo = true
+		touched.Replays = true
 
 	case "kill_feed":
 		var s string
 		if json.Unmarshal(e.Data, &s) == nil && s != "" {
 			var k domain.KillFeedEntry
 			if json.Unmarshal([]byte(s), &k) == nil {
-				k.Attacker = NormalizeName(k.Attacker)
-				k.Victim = NormalizeName(k.Victim)
+				k.Attacker = strings.Replace(k.Attacker, " #", "#", 1)
+				k.Victim = strings.Replace(k.Victim, " #", "#", 1)
 
 				if k.Attacker == cur.PlayerInfo.Name {
 					cur.MatchInfo.CurrentRound.HighlightsCount++

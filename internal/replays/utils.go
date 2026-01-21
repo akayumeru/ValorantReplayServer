@@ -9,6 +9,10 @@ import (
 )
 
 func ReplayWindow(mi domain.MatchInfo) (time.Duration, error) {
+	if mi.CurrentRound == nil {
+		return 30 * time.Second, nil
+	}
+
 	if mi.CurrentRound.LastPhase == "combat" {
 		return 0, errors.New("replay is disabled during combat phase")
 	}

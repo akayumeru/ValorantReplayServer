@@ -34,7 +34,9 @@ func (b *Builder) CreateReplay() (uint32, string) {
 		var hlRounds []uint64
 		for _, hl := range cur.ReplayState.PendingHighlights {
 			hlMomentsTotal += len(hl.EventsTimestamps)
-			hlRounds = append(hlRounds, hl.Round)
+			if hl.Round != 0 {
+				hlRounds = append(hlRounds, hl.Round)
+			}
 		}
 
 		var roundMomentsTotal uint32 = 0

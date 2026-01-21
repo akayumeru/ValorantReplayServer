@@ -23,7 +23,9 @@ func BuildPlan(window time.Duration, highlights []*domain.Highlight, fade time.D
 
 	totalEvents := 0
 	for _, h := range highlights {
-		totalEvents += len(h.EventsTimestamps)
+		if h != nil {
+			totalEvents += len(h.EventsTimestamps)
+		}
 	}
 	if totalEvents == 0 {
 		return nil, 0, errors.New("no EventsTimestamps")
@@ -42,6 +44,10 @@ func BuildPlan(window time.Duration, highlights []*domain.Highlight, fade time.D
 
 	var clips []Clip
 	for _, h := range highlights {
+		if h == nil {
+			continue
+		}
+
 		highlightDurSec := float64(h.Duration) / 1000.0
 		if highlightDurSec <= 0 {
 			continue
@@ -70,6 +76,7 @@ func BuildPlan(window time.Duration, highlights []*domain.Highlight, fade time.D
 				start = maxStart
 			}
 
+			// TODO: make clips not intersecting each other
 			clips = append(clips, Clip{
 				MediaPath: h.MediaPath,
 				StartSec:  start,
