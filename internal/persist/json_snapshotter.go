@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"time"
 
@@ -104,5 +105,13 @@ func (s *Snapshotter) writeOnce() error {
 		return err
 	}
 
-	return atomic.WriteFile(s.path, bytes.NewReader(payload))
+	err = atomic.WriteFile(s.path, bytes.NewReader(payload))
+
+	if err != nil {
+		log.Printf("Failed to write state to %q: %v\n", s.path, err)
+	} else {
+		log.Printf("Wrote state to %q\n", s.path)
+	}
+
+	return err
 }

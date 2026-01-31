@@ -1,6 +1,8 @@
 package domain
 
-import "time"
+import (
+	"time"
+)
 
 type GameInfo struct {
 	Scene string `json:"scene"`
@@ -79,10 +81,16 @@ type Replay struct {
 	Highlights  []*Highlight `json:"highlights"`
 }
 
+type ObsConnectionOptions struct {
+	Address  string `json:"address"`
+	Password string `json:"password"`
+}
+
 type State struct {
-	UpdatedAt   time.Time   `json:"updatedAt"`
-	PlayerInfo  PlayerInfo  `json:"playerInfo"`
-	GameInfo    GameInfo    `json:"gameInfo"`
-	MatchInfo   MatchInfo   `json:"matchInfo"`
-	ReplayState ReplayState `json:"replayState"`
+	ObsConnectionOptions *ObsConnectionOptions `json:"obsConnectionOptions"`
+	UpdatedAt            time.Time             `json:"updatedAt"`
+	PlayerInfo           PlayerInfo            `json:"playerInfo"`
+	GameInfo             GameInfo              `json:"gameInfo"`
+	MatchInfo            MatchInfo             `json:"matchInfo"`
+	ReplayState          ReplayState           `json:"replayState"`
 }

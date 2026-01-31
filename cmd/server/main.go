@@ -1,23 +1,28 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/akayumeru/valreplayserver/internal/domain"
 	"github.com/akayumeru/valreplayserver/internal/handlers"
+	"github.com/akayumeru/valreplayserver/internal/highlighter"
 	"github.com/akayumeru/valreplayserver/internal/persist"
 	"github.com/akayumeru/valreplayserver/internal/render"
 	"github.com/akayumeru/valreplayserver/internal/replays"
 	"github.com/akayumeru/valreplayserver/internal/store"
 	"github.com/akayumeru/valreplayserver/internal/stream"
-
+	"github.com/andreykaipov/goobs"
+	obsEvents "github.com/andreykaipov/goobs/api/events"
 	"github.com/rs/cors"
 )
 
@@ -44,6 +49,74 @@ func main() {
 		st.Replace(loaded)
 	}
 
+	go func() {
+		_ = snapshotter.Run(ctx)
+	}()
+
+	var obs *goobs.Client
+	var err error
+
+	if currentState := st.Get(); currentState.ObsConnectionOptions != nil {
+		obs, err = goobs.New(currentState.ObsConnectionOptions.Address, goobs.WithPassword(currentState.ObsConnectionOptions.Password))
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		reader := bufio.NewReader(os.Stdin)
+
+		hostname, err := prompt(reader, "Enter OBS WS hostname [default: localhost]: ")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Failed to read hostname:", err)
+			os.Exit(1)
+		}
+		if hostname == "" {
+			hostname = "localhost"
+		}
+
+		port, err := prompt(reader, "Enter OBS WS port [default: 4455]: ")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Failed to read port:", err)
+			os.Exit(1)
+		}
+		if port == "" {
+			port = "4455"
+		}
+
+		var password string
+		for {
+			password, err = prompt(reader, "Enter OBS WS password (required): ")
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Failed to read password:", err)
+				os.Exit(1)
+			}
+			if password != "" {
+				break
+			}
+			fmt.Println("Password is required. Please try again.")
+		}
+
+		options := &domain.ObsConnectionOptions{
+			Address:  fmt.Sprintf("%s:%s", hostname, port),
+			Password: password,
+		}
+
+		obs, err = goobs.New(options.Address, goobs.WithPassword(options.Password))
+		if err != nil {
+			panic(err)
+		}
+
+		st.Update(func(cur domain.State) domain.State {
+			next := cur
+			next.ObsConnectionOptions = options
+
+			return next
+		})
+	}
+
+	defer obs.Disconnect()
+
+	snapshotter.RequestSave()
+
 	hub := stream.NewHub()
 
 	renderer, err := render.NewRenderer()
@@ -59,12 +132,16 @@ func main() {
 		BaseURL: baseUrl,
 	}
 
+	hl := highlighter.New(st, snapshotter, obs)
+	defer hl.Close()
+
 	events := &handlers.EventsHandler{
 		Store:         st,
 		Hub:           hub,
 		Renderer:      renderer,
 		Snapshotter:   snapshotter,
 		ReplayBuilder: replayBuilder,
+		Highligher:    hl,
 	}
 
 	screens := &handlers.ScreensHandler{
@@ -79,14 +156,20 @@ func main() {
 	}
 
 	go func() {
-		_ = snapshotter.Run(ctx)
+		obs.Listen(func(e any) {
+			switch ev := e.(type) {
+			case *obsEvents.ReplayBufferSaved:
+				hl.OnReplayBufferSaved(ev.SavedReplayPath)
+			default:
+			}
+		})
 	}()
 
 	mux := http.NewServeMux()
 
 	// events
 	mux.HandleFunc("POST /events/game_event", events.HandleGameEvent)
-	mux.HandleFunc("POST /events/highlight_record", events.HandleHighlightRecord)
+	//mux.HandleFunc("POST /events/highlight_record", events.HandleHighlightRecord)
 
 	// screens
 	mux.HandleFunc("GET /screens/player_picks", screens.PlayerPicksPage)
@@ -134,4 +217,13 @@ func main() {
 	defer cancel()
 
 	_ = srv.Shutdown(shutdownCtx)
+}
+
+func prompt(reader *bufio.Reader, message string) (string, error) {
+	fmt.Print(message)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(input), nil
 }

@@ -30,7 +30,7 @@ func (t Topics) List() []string {
 	return out
 }
 
-func ApplyPayload(cur domain.State, payload []byte) (domain.State, Topics, error) {
+func ApplyPayload(cur domain.State, payload []byte, recordHighlight func()) (domain.State, Topics, error) {
 	env, root, err := ParseEnvelope(payload)
 	if err != nil {
 		return cur, Topics{}, err
@@ -48,7 +48,7 @@ func ApplyPayload(cur domain.State, payload []byte) (domain.State, Topics, error
 			_ = json.Unmarshal(root["events"], &env.Events)
 		}
 		for _, e := range env.Events {
-			cur, touched = applyEvent(cur, e, touched)
+			cur, touched = applyEvent(cur, e, touched, recordHighlight)
 		}
 		cur.UpdatedAt = time.Now().UTC()
 
@@ -214,7 +214,7 @@ func applyMatchInfo(cur domain.State, mi map[string]json.RawMessage, touched Top
 	return cur, touched
 }
 
-func applyEvent(cur domain.State, e RawEvent, touched Topics) (domain.State, Topics) {
+func applyEvent(cur domain.State, e RawEvent, touched Topics, recordHighlight func()) (domain.State, Topics) {
 	switch e.Name {
 	case "match_start":
 		touched.MatchInfo = true
@@ -226,6 +226,9 @@ func applyEvent(cur domain.State, e RawEvent, touched Topics) (domain.State, Top
 		touched.MatchInfo = true
 		touched.Replays = true
 
+	case "death":
+		recordHighlight() // TODO: temporary for tests
+
 	case "kill_feed":
 		var s string
 		if json.Unmarshal(e.Data, &s) == nil && s != "" {
@@ -236,6 +239,7 @@ func applyEvent(cur domain.State, e RawEvent, touched Topics) (domain.State, Top
 
 				if k.Attacker == cur.PlayerInfo.Name {
 					cur.MatchInfo.CurrentRound.HighlightsCount++
+					recordHighlight()
 				}
 
 				cur.MatchInfo.KillFeed = append(cur.MatchInfo.KillFeed, k)

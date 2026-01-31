@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/akayumeru/valreplayserver/internal/domain"
+	"github.com/akayumeru/valreplayserver/internal/highlighter"
 	"github.com/akayumeru/valreplayserver/internal/persist"
 	"github.com/akayumeru/valreplayserver/internal/render"
 	"github.com/akayumeru/valreplayserver/internal/replays"
@@ -22,6 +23,7 @@ type EventsHandler struct {
 	Renderer      *render.Renderer
 	Snapshotter   *persist.Snapshotter
 	ReplayBuilder *replays.Builder
+	Highligher    *highlighter.Highlighter
 }
 
 func (h *EventsHandler) HandleGameEvent(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +37,7 @@ func (h *EventsHandler) HandleGameEvent(w http.ResponseWriter, r *http.Request) 
 	next := h.Store.Update(func(curState domain.State) domain.State {
 		cur := curState
 
-		updated, touched, applyErr := valorant.ApplyPayload(cur, body)
+		updated, touched, applyErr := valorant.ApplyPayload(cur, body, h.Highligher.RecordHighlight)
 		if applyErr != nil {
 			return cur
 		}

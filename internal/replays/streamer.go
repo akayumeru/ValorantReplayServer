@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/akayumeru/valreplayserver/internal/store"
+	"github.com/akayumeru/valreplayserver/internal/valorant"
 )
 
 type Streamer struct {
@@ -39,12 +40,7 @@ func (s *Streamer) HandleStream(w http.ResponseWriter, r *http.Request) {
 
 	highlights := replay.Highlights
 
-	// calculating replay window
-	window, err := ReplayWindow(st.MatchInfo)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
-	}
+	window := valorant.PhaseDuration["shopping"]
 
 	const fade = 350 * time.Millisecond
 
