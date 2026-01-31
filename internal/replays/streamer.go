@@ -3,10 +3,14 @@ package replays
 import (
 	"bufio"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os/exec"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/akayumeru/valreplayserver/internal/store"
@@ -14,8 +18,14 @@ import (
 )
 
 type Streamer struct {
-	Store     *store.StateStore
-	FFmpegBin string
+	Store                *store.StateStore
+	GameAudioStreamTitle string
+	GameAudioStreamIndex int
+	FFmpegBin            string
+	FFprobeBin           string
+
+	audioMu    sync.Mutex
+	audioCache map[string]int // MediaPath -> audioIdx (a:<idx>)
 }
 
 func (s *Streamer) HandleStream(w http.ResponseWriter, r *http.Request) {
@@ -40,17 +50,29 @@ func (s *Streamer) HandleStream(w http.ResponseWriter, r *http.Request) {
 
 	highlights := replay.Highlights
 
-	window := valorant.PhaseDuration["shopping"]
+	var streamDuration time.Duration
+	maxDurStr := r.URL.Query().Get("max_duration")
+	if maxDurStr != "" {
+		maxDur, err := strconv.ParseUint(maxDurStr, 10, 64)
+		if err != nil {
+			http.Error(w, "invalid max_duration", http.StatusBadRequest)
+		}
+
+		streamDuration = time.Duration(maxDur) * time.Second
+	} else {
+		streamDuration = valorant.PhaseDuration["shopping"]
+	}
 
 	const fade = 350 * time.Millisecond
 
-	clips, totalDur, err := BuildPlan(window, highlights, fade)
+	clips, totalDur, err := BuildPlan(streamDuration, highlights, fade)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	args := buildFFmpegArgsNVENC(clips, fade)
+	audioIdx := s.resolveAudioIndices(clips)
+	args := buildFFmpegArgsNVENC(clips, audioIdx, fade)
 
 	w.Header().Set("Content-Type", "video/MP2T")
 	w.Header().Set("Cache-Control", "no-store")
@@ -121,7 +143,7 @@ func (s *Streamer) HandleStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func buildFFmpegArgsNVENC(clips []Clip, fade time.Duration) []string {
+func buildFFmpegArgsNVENC(clips []Clip, audioIdx []int, fade time.Duration) []string {
 	args := make([]string, 0, 64)
 
 	for _, c := range clips {
@@ -139,7 +161,13 @@ func buildFFmpegArgsNVENC(clips []Clip, fade time.Duration) []string {
 	fc := ""
 	for i := range clips {
 		fc += fmt.Sprintf("[%d:v]setpts=PTS-STARTPTS[v%d];", i, i)
-		fc += fmt.Sprintf("[%d:a]asetpts=PTS-STARTPTS[a%d];", i, i)
+
+		ai := 0
+		if i < len(audioIdx) && audioIdx[i] >= 0 {
+			ai = audioIdx[i]
+		}
+
+		fc += fmt.Sprintf("[%d:a:%d]asetpts=PTS-STARTPTS[a%d];", i, ai, i)
 	}
 
 	outV := "v0"
@@ -181,7 +209,7 @@ func buildFFmpegArgsNVENC(clips []Clip, fade time.Duration) []string {
 		"-bufsize", "4M",
 		"-g", "120",
 		"-c:a", "aac",
-		"-b:a", "192k",
+		"-b:a", "128k",
 
 		// MPEG-TS into stdout (pipe:1)
 		"-f", "mpegts",
@@ -191,4 +219,123 @@ func buildFFmpegArgsNVENC(clips []Clip, fade time.Duration) []string {
 	)
 
 	return args
+}
+
+func (s *Streamer) resolveAudioIndices(clips []Clip) []int {
+	out := make([]int, len(clips))
+
+	title := s.GameAudioStreamTitle
+	if title == "" {
+		title = "Game only"
+	}
+
+	for i, c := range clips {
+		if idx, ok := s.getAudioIdxCached(c.MediaPath); ok {
+			out[i] = idx
+			continue
+		}
+
+		idx, streamsCount, err := s.FindAudioStreamIndexByTitle(
+			context.Background(),
+			c.MediaPath,
+			title,
+		)
+
+		if err != nil {
+			if streamsCount >= s.GameAudioStreamIndex+1 {
+				idx = s.GameAudioStreamIndex
+			} else {
+				idx = 0
+			}
+		}
+
+		s.setAudioIdxCached(c.MediaPath, idx)
+		out[i] = idx
+	}
+
+	return out
+}
+
+func (s *Streamer) getAudioIdxCached(mediaPath string) (int, bool) {
+	s.audioMu.Lock()
+	defer s.audioMu.Unlock()
+
+	if s.audioCache == nil {
+		s.audioCache = make(map[string]int)
+	}
+	v, ok := s.audioCache[mediaPath]
+	return v, ok
+}
+
+func (s *Streamer) setAudioIdxCached(mediaPath string, idx int) {
+	s.audioMu.Lock()
+	defer s.audioMu.Unlock()
+
+	if s.audioCache == nil {
+		s.audioCache = make(map[string]int)
+	}
+	s.audioCache[mediaPath] = idx
+}
+
+type ffprobeStreamsResponse struct {
+	Streams []ffprobeStream `json:"streams"`
+}
+
+type ffprobeStream struct {
+	Index int               `json:"index"`
+	Tags  map[string]string `json:"tags"`
+}
+
+func (streamer *Streamer) FindAudioStreamIndexByTitle(
+	ctx context.Context,
+	filePath string,
+	wantTitle string,
+) (int, int, error) {
+	if strings.TrimSpace(filePath) == "" {
+		return 0, 0, errors.New("filePath is empty")
+	}
+	if strings.TrimSpace(wantTitle) == "" {
+		return 0, 0, errors.New("wantTitle is empty")
+	}
+
+	cmd := exec.CommandContext(
+		ctx,
+		streamer.FFprobeBin,
+		"-v", "error",
+		"-select_streams", "a",
+		"-show_streams",
+		"-print_format", "json",
+		filePath,
+	)
+
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, 0, fmt.Errorf("ffprobe failed: %w", err)
+	}
+
+	var resp ffprobeStreamsResponse
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return 0, 0, fmt.Errorf("ffprobe json parse failed: %w", err)
+	}
+
+	if len(resp.Streams) == 0 {
+		return 0, 0, errors.New("no audio streams found")
+	}
+
+	normalize := func(s string) string {
+		return strings.ToLower(strings.TrimSpace(s))
+	}
+	want := normalize(wantTitle)
+
+	for audioIdx, s := range resp.Streams {
+		title := ""
+		if s.Tags != nil {
+			title = s.Tags["title"]
+		}
+		if normalize(title) == want {
+			return audioIdx, len(resp.Streams), nil
+		}
+	}
+
+	return 0, len(resp.Streams), fmt.Errorf("audio stream with title %q not found; fallback to a:0", wantTitle)
 }

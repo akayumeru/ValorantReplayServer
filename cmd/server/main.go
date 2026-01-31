@@ -132,7 +132,9 @@ func main() {
 		BaseURL: baseUrl,
 	}
 
-	hl := highlighter.New("ffprobe.exe", st, snapshotter, obs)
+	const ffmpegBin = "ffmpeg.exe"
+	const ffprobeBin = "ffprobe.exe"
+	hl := highlighter.New(ffprobeBin, st, snapshotter, obs)
 	defer hl.Close()
 
 	events := &handlers.EventsHandler{
@@ -151,8 +153,11 @@ func main() {
 	}
 
 	replayStreamer := &replays.Streamer{
-		Store:     st,
-		FFmpegBin: "ffmpeg.exe",
+		Store:                st,
+		FFmpegBin:            ffmpegBin,
+		FFprobeBin:           ffprobeBin,
+		GameAudioStreamTitle: "Game only",
+		GameAudioStreamIndex: 3,
 	}
 
 	go func() {

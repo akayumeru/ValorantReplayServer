@@ -140,6 +140,12 @@ func applyMatchInfo(cur domain.State, mi map[string]json.RawMessage, touched Top
 		case k == "match_id":
 			var s string
 			if json.Unmarshal(v, &s) == nil {
+				if cur.MatchInfo.MatchID != s {
+					cur.MatchInfo.Rounds = nil
+					cur.MatchInfo.CurrentRound = nil
+					cur.MatchInfo.KillFeed = nil
+					cur.MatchInfo.Roster = nil
+				}
 				cur.MatchInfo.MatchID = s
 				touched.MatchInfo = true
 			}
