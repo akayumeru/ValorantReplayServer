@@ -23,17 +23,21 @@ type bufferSession struct {
 	id       uint64
 	firstAt  time.Time
 	lastAt   time.Time
-	kills    []time.Time
+	events   []time.Time
 	timer    *time.Timer
 	closed   bool
 	savedReq bool
+
+	waitCh chan error
 }
 
 type pendingSave struct {
-	sessionID    uint64
-	requestedAt  time.Time
-	bufferStart  time.Time // requestedAt - bufferLen
-	eventsOffset []uint64  // offsets from bufferStart in ms
+	sessionID   uint64
+	requestedAt time.Time
+	bufferStart time.Time   // requestedAt - bufferLen
+	events      []time.Time // offsets from bufferStart in ms
+
+	waitCh chan error
 }
 
 type Config struct {
@@ -90,6 +94,168 @@ func (hl *Highlighter) Close() {
 	close(hl.stopCh)
 }
 
+func (hl *Highlighter) FlushIfHasHighlightsNow(ctx context.Context) (bool, error) {
+	hl.mu.Lock()
+
+	var target *bufferSession
+	for i := len(hl.sessions) - 1; i >= 0; i-- {
+		s := hl.sessions[i]
+		if len(s.events) == 0 {
+			continue
+		}
+		if s.savedReq && s.waitCh != nil {
+			ch := s.waitCh
+			hl.mu.Unlock()
+
+			select {
+			case err := <-ch:
+				return true, err
+			case <-ctx.Done():
+				return true, ctx.Err()
+			}
+		}
+
+		if !s.savedReq {
+			target = s
+			break
+		}
+	}
+
+	if target == nil {
+		hl.mu.Unlock()
+		return false, nil
+	}
+
+	target.closed = true
+	if target.timer != nil {
+		_ = target.timer.Stop()
+	}
+
+	sessionID := target.id
+	hl.mu.Unlock()
+
+	return true, hl.SaveReplayBufferForSessionAndWait(ctx, sessionID)
+}
+
+func (hl *Highlighter) SaveReplayBufferForSession(sessionID uint64) error {
+	_, err := hl.requestSave(sessionID, nil)
+	return err
+}
+
+func (hl *Highlighter) SaveReplayBufferForSessionAndWait(ctx context.Context, sessionID uint64) error {
+	waitCh, err := hl.requestSave(sessionID, func() chan error { return make(chan error, 1) })
+	if err != nil {
+		if waitCh == nil {
+			return err
+		}
+	}
+
+	if waitCh == nil {
+		return nil
+	}
+
+	select {
+	case e := <-waitCh:
+		return e
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (hl *Highlighter) requestSave(sessionID uint64, makeWaitCh func() chan error) (chan error, error) {
+	obs := hl.getObs()
+	if obs == nil {
+		return nil, errors.New("obs client is nil")
+	}
+
+	hl.mu.Lock()
+
+	var s *bufferSession
+	for i := range hl.sessions {
+		if hl.sessions[i].id == sessionID {
+			s = hl.sessions[i]
+			break
+		}
+	}
+	if s == nil {
+		hl.mu.Unlock()
+		return nil, nil
+	}
+
+	if len(s.events) == 0 {
+		hl.mu.Unlock()
+		return nil, nil
+	}
+
+	if s.savedReq {
+		ch := s.waitCh
+		hl.mu.Unlock()
+		return ch, nil
+	}
+
+	s.closed = true
+	if s.timer != nil {
+		_ = s.timer.Stop()
+	}
+
+	var ch chan error
+	if makeWaitCh != nil {
+		ch = makeWaitCh()
+		s.waitCh = ch
+	}
+
+	s.savedReq = true
+
+	events := append([]time.Time(nil), s.events...)
+	hl.mu.Unlock()
+
+	status, err := obs.Outputs.GetReplayBufferStatus()
+	if err == nil && !status.OutputActive {
+		if _, err2 := obs.Outputs.StartReplayBuffer(); err2 != nil {
+			hl.failSave(sessionID, ch, err2)
+			return ch, err2
+		}
+	}
+
+	requestedAt := time.Now()
+	if _, err := obs.Outputs.SaveReplayBuffer(); err != nil {
+		hl.failSave(sessionID, ch, err)
+		return ch, err
+	}
+
+	ps := pendingSave{
+		sessionID:   sessionID,
+		requestedAt: requestedAt,
+		events:      events,
+		waitCh:      ch,
+	}
+
+	hl.pendingMu.Lock()
+	hl.pending = append(hl.pending, ps)
+	hl.pendingMu.Unlock()
+
+	log.Printf("[Highlighter] SaveReplayBuffer requested session=%d", sessionID)
+	return ch, nil
+}
+
+func (hl *Highlighter) failSave(sessionID uint64, ch chan error, err error) {
+	hl.mu.Lock()
+	for i := range hl.sessions {
+		if hl.sessions[i].id == sessionID {
+			hl.sessions[i].savedReq = false
+			hl.sessions[i].closed = false
+			hl.sessions[i].waitCh = nil
+			break
+		}
+	}
+	hl.mu.Unlock()
+
+	if ch != nil {
+		ch <- err
+		close(ch)
+	}
+}
+
 func (hl *Highlighter) RecordHighlight() {
 	now := time.Now()
 
@@ -128,7 +294,7 @@ func (hl *Highlighter) RecordHighlight() {
 			id:      hl.nextSessionID,
 			firstAt: now,
 			lastAt:  now,
-			kills:   []time.Time{now},
+			events:  []time.Time{now},
 		}
 
 		s.timer = time.NewTimer(hl.cfg.PostWindow)
@@ -139,7 +305,7 @@ func (hl *Highlighter) RecordHighlight() {
 		return
 	}
 
-	s.kills = append(s.kills, now)
+	s.events = append(s.events, now)
 	s.lastAt = now
 
 	if s.timer.Stop() {
@@ -180,79 +346,11 @@ func (hl *Highlighter) saveWorker() {
 		case <-hl.stopCh:
 			return
 		case sessionID := <-hl.saveCh:
-			if err := hl.saveReplayBufferForSession(sessionID); err != nil {
+			if _, err := hl.requestSave(sessionID, nil); err != nil {
 				log.Printf("[Highlighter] SaveReplayBuffer failed session=%d err=%v", sessionID, err)
 			}
 		}
 	}
-}
-
-func (hl *Highlighter) saveReplayBufferForSession(sessionID uint64) error {
-	obs := hl.getObs()
-	if obs == nil {
-		return errors.New("obs client is nil")
-	}
-
-	hl.mu.Lock()
-	var kills []time.Time
-	for i := range hl.sessions {
-		if hl.sessions[i].id == sessionID {
-			s := hl.sessions[i]
-			if s.savedReq {
-				hl.mu.Unlock()
-				return nil
-			}
-			s.savedReq = true
-			kills = append([]time.Time(nil), s.kills...)
-			break
-		}
-	}
-	hl.mu.Unlock()
-
-	if len(kills) == 0 {
-		return nil
-	}
-
-	status, err := obs.Outputs.GetReplayBufferStatus()
-	if err == nil && !status.OutputActive {
-		if _, err2 := obs.Outputs.StartReplayBuffer(); err2 != nil {
-			return err2
-		}
-	}
-
-	requestedAt := time.Now()
-
-	if _, err = obs.Outputs.SaveReplayBuffer(); err != nil {
-		return err
-	}
-
-	bufferStart := requestedAt.Add(-hl.cfg.BufferLen)
-
-	offsets := make([]uint64, 0, len(kills))
-	for _, kt := range kills {
-		d := kt.Sub(bufferStart)
-		if d < 0 {
-			d = 0
-		}
-		if d > hl.cfg.BufferLen {
-			d = hl.cfg.BufferLen
-		}
-		offsets = append(offsets, uint64(d.Milliseconds()))
-	}
-
-	ps := pendingSave{
-		sessionID:    sessionID,
-		requestedAt:  requestedAt,
-		bufferStart:  bufferStart,
-		eventsOffset: offsets,
-	}
-
-	hl.pendingMu.Lock()
-	hl.pending = append(hl.pending, ps)
-	hl.pendingMu.Unlock()
-
-	log.Printf("[Highlighter] SaveReplayBuffer requested session=%d", sessionID)
-	return nil
 }
 
 func (hl *Highlighter) OnReplayBufferSaved(savedReplayPath string) {
@@ -268,23 +366,40 @@ func (hl *Highlighter) OnReplayBufferSaved(savedReplayPath string) {
 
 	state := hl.Store.Get()
 
-	rbDuration, err := hl.ProbeDurationMs(context.Background(), savedReplayPath)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
 
-	if err != nil {
+	rbDuration, err := hl.ProbeDurationMs(ctx, savedReplayPath)
+	if err != nil || rbDuration == 0 {
 		rbDuration = uint64(hl.cfg.BufferLen.Milliseconds())
+	}
+
+	bufferStart := ps.requestedAt.Add(-time.Duration(rbDuration) * time.Millisecond)
+	duration := time.Duration(rbDuration) * time.Millisecond
+
+	offsets := make([]uint64, 0, len(ps.events))
+	for _, kt := range ps.events {
+		d := kt.Sub(bufferStart)
+		if d < 0 {
+			d = 0
+		}
+		if d > duration {
+			d = duration
+		}
+		offsets = append(offsets, uint64(d.Milliseconds()))
 	}
 
 	h := Highlight{
 		MatchId:          state.MatchInfo.MatchID,
-		StartTime:        uint64(ps.requestedAt.UnixMilli()) - rbDuration,
+		StartTime:        uint64(bufferStart.UnixMilli()),
 		MediaPath:        savedReplayPath,
 		Duration:         rbDuration,
-		EventsTimestamps: ps.eventsOffset,
+		EventsTimestamps: offsets,
 		Round:            0,
 	}
 
 	for _, round := range state.MatchInfo.Rounds {
-		if round.StartedAt.UnixMilli() >= int64(h.StartTime) && (round.EndedAt.UnixMilli() > int64(h.StartTime)) {
+		if round.StartedAt.UnixMilli() <= int64(h.StartTime) && (round.EndedAt.IsZero() || round.EndedAt.UnixMilli() > int64(h.StartTime)) {
 			h.Round = uint64(round.Number)
 			break
 		}
@@ -293,13 +408,26 @@ func (hl *Highlighter) OnReplayBufferSaved(savedReplayPath string) {
 	hl.Store.Update(func(cur domain.State) domain.State {
 		next := cur
 		next.ReplayState.PendingHighlights = append(cur.ReplayState.PendingHighlights, &h)
-
 		return next
 	})
 
 	hl.Snapshotter.RequestSave()
 
-	log.Printf("[Highlighter] replay saved session=%d path=%s offsets=%v", ps.sessionID, savedReplayPath, ps.eventsOffset)
+	if ps.waitCh != nil {
+		ps.waitCh <- nil
+		close(ps.waitCh)
+	}
+
+	hl.mu.Lock()
+	for i := range hl.sessions {
+		if hl.sessions[i].id == ps.sessionID {
+			hl.sessions[i].waitCh = nil
+			break
+		}
+	}
+	hl.mu.Unlock()
+
+	log.Printf("[Highlighter] replay saved session=%d path=%s offsets=%v", ps.sessionID, savedReplayPath, offsets)
 }
 
 func (hl *Highlighter) ProbeDurationMs(ctx context.Context, filePath string) (uint64, error) {

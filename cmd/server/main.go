@@ -16,6 +16,7 @@ import (
 	"github.com/akayumeru/valreplayserver/internal/domain"
 	"github.com/akayumeru/valreplayserver/internal/handlers"
 	"github.com/akayumeru/valreplayserver/internal/highlighter"
+	internalObs "github.com/akayumeru/valreplayserver/internal/obs"
 	"github.com/akayumeru/valreplayserver/internal/persist"
 	"github.com/akayumeru/valreplayserver/internal/render"
 	"github.com/akayumeru/valreplayserver/internal/replays"
@@ -137,6 +138,14 @@ func main() {
 	hl := highlighter.New(ffprobeBin, st, snapshotter, obs)
 	defer hl.Close()
 
+	obsController := &internalObs.Controller{
+		StateStore:      st,
+		ReplaySceneName: "Replay",
+		VlcInputName:    "Replay Source",
+		Obs:             obs,
+		BaseURL:         baseUrl,
+	}
+
 	events := &handlers.EventsHandler{
 		Store:         st,
 		Hub:           hub,
@@ -144,6 +153,7 @@ func main() {
 		Snapshotter:   snapshotter,
 		ReplayBuilder: replayBuilder,
 		Highligher:    hl,
+		ObsController: obsController,
 	}
 
 	screens := &handlers.ScreensHandler{
@@ -154,6 +164,7 @@ func main() {
 
 	replayStreamer := &replays.Streamer{
 		Store:                st,
+		ObsController:        obsController,
 		FFmpegBin:            ffmpegBin,
 		FFprobeBin:           ffprobeBin,
 		GameAudioStreamTitle: "Game only",

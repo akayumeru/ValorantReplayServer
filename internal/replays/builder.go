@@ -1,7 +1,9 @@
 package replays
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"math"
 	"net/url"
 
@@ -14,15 +16,12 @@ type Builder struct {
 	BaseURL *url.URL
 }
 
-func (b *Builder) CreateReplay() (uint32, string) {
+func (b *Builder) CreateReplay() (uint32, string, error) {
 	var createdID uint32
 	var notCreated bool
 
 	b.Store.Update(func(cur domain.State) domain.State {
 		notCreated = true
-		if _, err := ReplayWindow(cur.MatchInfo); err != nil {
-			return cur
-		}
 
 		if len(cur.ReplayState.PendingHighlights) == 0 || cur.ReplayState.CurrentReplayId == math.MaxUint32 {
 			return cur
@@ -30,22 +29,11 @@ func (b *Builder) CreateReplay() (uint32, string) {
 
 		createdID = cur.ReplayState.CurrentReplayId
 
-		hlMomentsTotal := 0
 		var hlRounds []uint64
 		for _, hl := range cur.ReplayState.PendingHighlights {
-			hlMomentsTotal += len(hl.EventsTimestamps)
 			if hl.Round != 0 {
 				hlRounds = append(hlRounds, hl.Round)
 			}
-		}
-
-		var roundMomentsTotal uint32 = 0
-		for _, roundNumber := range hlRounds {
-			roundMomentsTotal += cur.MatchInfo.Rounds[int(roundNumber)-1].HighlightsCount
-		}
-
-		if uint32(hlMomentsTotal) < roundMomentsTotal {
-			return cur
 		}
 
 		// for uniqueness
@@ -60,8 +48,19 @@ func (b *Builder) CreateReplay() (uint32, string) {
 			hlsForReplay = append(hlsForReplay, hl)
 		}
 
+		var roundNumber = 0
+		if cur.MatchInfo.CurrentRound != nil {
+			roundNumber = cur.MatchInfo.CurrentRound.Number
+		} else {
+			for _, round := range cur.MatchInfo.Rounds {
+				if roundNumber <= round.Number {
+					roundNumber = round.Number
+				}
+			}
+		}
+
 		replay := domain.Replay{
-			RoundNumber: cur.MatchInfo.CurrentRound.Number,
+			RoundNumber: roundNumber,
 			Highlights:  hlsForReplay,
 		}
 
@@ -78,7 +77,7 @@ func (b *Builder) CreateReplay() (uint32, string) {
 	})
 
 	if notCreated {
-		return 0, ""
+		return 0, "", errors.New("replay was not created")
 	}
 
 	u := *b.BaseURL
@@ -87,5 +86,7 @@ func (b *Builder) CreateReplay() (uint32, string) {
 	q.Set("replay_id", fmt.Sprintf("%d", createdID))
 	u.RawQuery = q.Encode()
 
-	return createdID, u.String()
+	log.Printf("Created replay with id %d (%s)\n", createdID, u.String())
+
+	return createdID, u.String(), nil
 }

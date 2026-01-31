@@ -13,12 +13,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/akayumeru/valreplayserver/internal/obs"
 	"github.com/akayumeru/valreplayserver/internal/store"
 	"github.com/akayumeru/valreplayserver/internal/valorant"
 )
 
 type Streamer struct {
 	Store                *store.StateStore
+	ObsController        *obs.Controller
 	GameAudioStreamTitle string
 	GameAudioStreamIndex int
 	FFmpegBin            string
@@ -63,6 +65,17 @@ func (s *Streamer) HandleStream(w http.ResponseWriter, r *http.Request) {
 		streamDuration = valorant.PhaseDuration["shopping"]
 	}
 
+	var controlObs bool
+	controlObsStr := r.URL.Query().Get("control_obs")
+	if controlObsStr != "" {
+		controlObs, err = strconv.ParseBool(controlObsStr)
+		if err != nil {
+			http.Error(w, "invalid control_obs", http.StatusBadRequest)
+		}
+	} else {
+		controlObs = false
+	}
+
 	const fade = 350 * time.Millisecond
 
 	clips, totalDur, err := BuildPlan(streamDuration, highlights, fade)
@@ -103,9 +116,9 @@ func (s *Streamer) HandleStream(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	var hookTimer *time.Timer
-	if totalDur > 2*time.Second {
-		hookTimer = time.AfterFunc(totalDur-2*time.Second, func() {
-			// TODO: OBS WebSocket signal here
+	if controlObs && totalDur > 1*time.Second {
+		hookTimer = time.AfterFunc(totalDur-1*time.Second, func() {
+			s.ObsController.StopReplay()
 		})
 	}
 
