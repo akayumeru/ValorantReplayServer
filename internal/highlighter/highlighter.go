@@ -276,7 +276,7 @@ func (hl *Highlighter) OnReplayBufferSaved(savedReplayPath string) {
 
 	h := Highlight{
 		MatchId:          state.MatchInfo.MatchID,
-		StartTime:        uint64(ps.bufferStart.UnixMilli()),
+		StartTime:        uint64(ps.requestedAt.UnixMilli()) - rbDuration,
 		MediaPath:        savedReplayPath,
 		Duration:         rbDuration,
 		EventsTimestamps: ps.eventsOffset,
