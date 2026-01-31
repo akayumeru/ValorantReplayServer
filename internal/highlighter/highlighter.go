@@ -1,8 +1,13 @@
 package highlighter
 
 import (
+	"context"
 	"errors"
 	"log"
+	"math"
+	"os/exec"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +44,7 @@ type Config struct {
 }
 
 type Highlighter struct {
+	FFprobeBin  string
 	Store       *store.StateStore
 	Snapshotter *persist.Snapshotter
 	Obs         *goobs.Client
@@ -57,8 +63,9 @@ type Highlighter struct {
 	stopCh chan struct{}
 }
 
-func New(store *store.StateStore, snapshotter *persist.Snapshotter, obsClient *goobs.Client) *Highlighter {
+func New(FFprobeBin string, store *store.StateStore, snapshotter *persist.Snapshotter, obsClient *goobs.Client) *Highlighter {
 	hl := &Highlighter{
+		FFprobeBin:  FFprobeBin,
 		Store:       store,
 		Snapshotter: snapshotter,
 		Obs:         obsClient,
@@ -261,11 +268,17 @@ func (hl *Highlighter) OnReplayBufferSaved(savedReplayPath string) {
 
 	state := hl.Store.Get()
 
+	rbDuration, err := hl.ProbeDurationMs(context.Background(), savedReplayPath)
+
+	if err != nil {
+		rbDuration = uint64(hl.cfg.BufferLen.Milliseconds())
+	}
+
 	h := Highlight{
 		MatchId:          state.MatchInfo.MatchID,
 		StartTime:        uint64(ps.bufferStart.UnixMilli()),
 		MediaPath:        savedReplayPath,
-		Duration:         uint64(hl.cfg.BufferLen.Milliseconds()), // TODO: can be smaller
+		Duration:         rbDuration,
 		EventsTimestamps: ps.eventsOffset,
 		Round:            0,
 	}
@@ -287,4 +300,41 @@ func (hl *Highlighter) OnReplayBufferSaved(savedReplayPath string) {
 	hl.Snapshotter.RequestSave()
 
 	log.Printf("[Highlighter] replay saved session=%d path=%s offsets=%v", ps.sessionID, savedReplayPath, ps.eventsOffset)
+}
+
+func (hl *Highlighter) ProbeDurationMs(ctx context.Context, filePath string) (uint64, error) {
+	if strings.TrimSpace(filePath) == "" {
+		return 0, errors.New("filePath is empty")
+	}
+
+	cmd := exec.CommandContext(
+		ctx,
+		hl.FFprobeBin,
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		filePath,
+	)
+
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+
+	stringDuration := strings.TrimSpace(string(out))
+	if stringDuration == "" || stringDuration == "N/A" {
+		return 0, errors.New("duration is not available")
+	}
+
+	sec, err := strconv.ParseFloat(stringDuration, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	if sec < 0 {
+		return 0, errors.New("duration is negative")
+	}
+
+	ms := uint64(math.Round(sec * 1000.0))
+	return ms, nil
 }

@@ -132,7 +132,7 @@ func main() {
 		BaseURL: baseUrl,
 	}
 
-	hl := highlighter.New(st, snapshotter, obs)
+	hl := highlighter.New("ffprobe.exe", st, snapshotter, obs)
 	defer hl.Close()
 
 	events := &handlers.EventsHandler{
