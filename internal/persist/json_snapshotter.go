@@ -1,7 +1,6 @@
 package persist
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,7 +10,7 @@ import (
 
 	"github.com/akayumeru/valreplayserver/internal/domain"
 	"github.com/akayumeru/valreplayserver/internal/store"
-	"github.com/natefinch/atomic"
+	"github.com/sashka/atomicfile"
 )
 
 type Snapshotter struct {
@@ -105,12 +104,16 @@ func (s *Snapshotter) writeOnce() error {
 		return err
 	}
 
-	err = atomic.WriteFile(s.path, bytes.NewReader(payload))
+	f, err := atomicfile.New(s.path, 0o666)
+	defer f.Abort()
+
+	_, err = f.Write(payload)
 
 	if err != nil {
 		log.Printf("Failed to write state to %q: %v\n", s.path, err)
 	} else {
 		log.Printf("Wrote state to %q\n", s.path)
+		f.Close()
 	}
 
 	return err

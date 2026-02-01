@@ -135,7 +135,7 @@ func (c *Controller) buildReplayURL(replayID uint32) string {
 	replayWindow, _ := ReplayWindow(c.StateStore.Get().MatchInfo)
 
 	if replayWindow-2*time.Second <= 0*time.Second {
-		replayWindow = 10 * time.Second
+		replayWindow = 15 * time.Second
 	}
 
 	q.Set("max_duration", fmt.Sprintf("%d", uint32(math.Round(replayWindow.Seconds()))))

@@ -243,12 +243,11 @@ func applyEvent(cur domain.State, e RawEvent, touched Topics) (domain.State, Top
 		touched.MatchInfo = true
 		touched.TriggerReplay = true
 
-	case "death":
-		touched.Highlight = true // TODO: temporary for tests
-
 	case "kill":
-		cur.MatchInfo.CurrentRound.HighlightsCount++
-		touched.Highlight = true
+		if cur.MatchInfo.CurrentRound != nil {
+			cur.MatchInfo.CurrentRound.HighlightsCount++
+			touched.Highlight = true
+		}
 
 	case "kill_feed":
 		var s string

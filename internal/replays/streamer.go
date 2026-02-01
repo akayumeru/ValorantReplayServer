@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os/exec"
 	"strconv"
@@ -110,8 +111,14 @@ func (s *Streamer) HandleStream(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		sc := bufio.NewScanner(stderr)
+		buf := make([]byte, 0, 64*1024)
+		sc.Buffer(buf, 2*1024*1024)
+
 		for sc.Scan() {
-			_ = sc.Text()
+			log.Printf("[ffmpeg] %s", sc.Text())
+		}
+		if err := sc.Err(); err != nil {
+			log.Printf("[ffmpeg] stderr scan error: %v", err)
 		}
 	}()
 
@@ -127,6 +134,7 @@ func (s *Streamer) HandleStream(w http.ResponseWriter, r *http.Request) {
 			hookTimer.Stop()
 		}
 		http.Error(w, "ffmpeg start error", http.StatusInternalServerError)
+		log.Printf("ffmpeg start error: %v", err)
 		return
 	}
 
@@ -157,30 +165,46 @@ func (s *Streamer) HandleStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func buildFFmpegArgsNVENC(clips []Clip, audioIdx []int, fade time.Duration) []string {
-	args := make([]string, 0, 64)
+	args := make([]string, 0, 128)
 
+	// Inputs
 	for _, c := range clips {
 		args = append(args,
+			// Helps avoid blocking / stalls in complex graphs
+			"-thread_queue_size", "1024",
+
+			// Real-time pacing (important if you use wall-clock timer in Go)
 			"-re",
+
+			// Fast seek to approximate start
 			"-ss", fmt.Sprintf("%.3f", c.StartSec),
-			"-t", fmt.Sprintf("%.3f", c.DurSec),
+
 			"-i", c.MediaPath,
 		)
 	}
 
-	// filter_complex: xfade + acrossfade
 	fadeSec := fade.Seconds()
 
-	fc := ""
-	for i := range clips {
-		fc += fmt.Sprintf("[%d:v]setpts=PTS-STARTPTS[v%d];", i, i)
+	var b strings.Builder
+
+	for i, c := range clips {
+		// Video
+		// Trim exact duration; setpts; fifo (buffering)
+		fmt.Fprintf(&b, "[%d:v]trim=duration=%.3f,setpts=PTS-STARTPTS[v%d];", i, c.DurSec, i)
 
 		ai := 0
 		if i < len(audioIdx) && audioIdx[i] >= 0 {
 			ai = audioIdx[i]
 		}
 
-		fc += fmt.Sprintf("[%d:a:%d]asetpts=PTS-STARTPTS[a%d];", i, ai, i)
+		// Audio
+		// atrim exact duration; asetpts; format normalize; async resample; afifo
+		fmt.Fprintf(&b,
+			"[%d:a:%d]atrim=duration=%.3f,asetpts=PTS-STARTPTS,"+
+				"aformat=sample_rates=48000:channel_layouts=stereo,"+
+				"aresample=async=1000:first_pts=0[a%d];",
+			i, ai, c.DurSec, i,
+		)
 	}
 
 	outV := "v0"
@@ -192,13 +216,16 @@ func buildFFmpegArgsNVENC(clips []Clip, audioIdx []int, fade time.Duration) []st
 		if offset < 0 {
 			offset = 0
 		}
+
 		nextV := fmt.Sprintf("vxf%d", i)
 		nextA := fmt.Sprintf("axf%d", i)
 
-		fc += fmt.Sprintf("[%s][v%d]xfade=transition=fade:duration=%.3f:offset=%.3f[%s];",
+		fmt.Fprintf(&b,
+			"[%s][v%d]xfade=transition=fade:duration=%.3f:offset=%.3f[%s];",
 			outV, i, fadeSec, offset, nextV,
 		)
-		fc += fmt.Sprintf("[%s][a%d]acrossfade=d=%.3f[%s];",
+		fmt.Fprintf(&b,
+			"[%s][a%d]acrossfade=d=%.3f:c1=tri:c2=tri[%s];",
 			outA, i, fadeSec, nextA,
 		)
 
@@ -208,7 +235,10 @@ func buildFFmpegArgsNVENC(clips []Clip, audioIdx []int, fade time.Duration) []st
 	}
 
 	args = append(args,
-		"-filter_complex", fc,
+		"-hide_banner",
+		"-loglevel", "warning",
+
+		"-filter_complex", b.String(),
 		"-map", fmt.Sprintf("[%s]", outV),
 		"-map", fmt.Sprintf("[%s]", outA),
 
@@ -221,10 +251,12 @@ func buildFFmpegArgsNVENC(clips []Clip, audioIdx []int, fade time.Duration) []st
 		"-maxrate", "25M",
 		"-bufsize", "4M",
 		"-g", "120",
+
+		// Audio AAC 128k
 		"-c:a", "aac",
 		"-b:a", "128k",
 
-		// MPEG-TS into stdout (pipe:1)
+		// Output MPEG-TS to stdout (pipe:1)
 		"-f", "mpegts",
 		"-muxdelay", "0",
 		"-muxpreload", "0",

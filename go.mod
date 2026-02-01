@@ -4,8 +4,8 @@ go 1.25
 
 require (
 	github.com/andreykaipov/goobs v1.5.6
-	github.com/natefinch/atomic v1.0.1
 	github.com/rs/cors v1.11.1
+	github.com/sashka/atomicfile v0.0.0-20200525220301-56ae5a81ddac
 )
 
 require (
