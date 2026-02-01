@@ -58,6 +58,7 @@ func (h *EventsHandler) HandleGameEvent(w http.ResponseWriter, r *http.Request) 
 		case "trigger_replay":
 			h.CreateReplayAndStart()
 		case "start_replay_buffer":
+			h.ObsController.StopReplay()
 			h.ObsController.StartReplayBuffer()
 		}
 	}

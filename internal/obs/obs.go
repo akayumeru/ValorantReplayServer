@@ -15,6 +15,11 @@ import (
 	"github.com/andreykaipov/goobs/api/requests/scenes"
 )
 
+type currentReplay struct {
+	id  uint32
+	dur time.Duration
+}
+
 type Controller struct {
 	StateStore      *store.StateStore
 	ReplaySceneName string
@@ -24,6 +29,8 @@ type Controller struct {
 
 	isPlaying     bool
 	previousScene string
+
+	current currentReplay
 }
 
 func (c *Controller) StartReplay(replayID uint32) error {
@@ -78,6 +85,19 @@ func (c *Controller) StartReplay(replayID uint32) error {
 	}
 
 	return nil
+}
+
+func (c *Controller) SetCurrentReplay(replayID uint32, duration time.Duration) {
+	c.current = currentReplay{
+		id:  replayID,
+		dur: duration,
+	}
+
+	if duration > 1*time.Second {
+		time.AfterFunc(duration-1*time.Second, func() {
+			c.StopReplay()
+		})
+	}
 }
 
 func (c *Controller) StartReplayBuffer() error {

@@ -122,26 +122,17 @@ func (s *Streamer) HandleStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	var hookTimer *time.Timer
-	if controlObs && totalDur > 1*time.Second {
-		hookTimer = time.AfterFunc(totalDur-1*time.Second, func() {
-			s.ObsController.StopReplay()
-		})
-	}
-
 	if err := cmd.Start(); err != nil {
-		if hookTimer != nil {
-			hookTimer.Stop()
-		}
 		http.Error(w, "ffmpeg start error", http.StatusInternalServerError)
 		log.Printf("ffmpeg start error: %v", err)
 		return
 	}
 
+	if controlObs {
+		s.ObsController.SetCurrentReplay(replayID, totalDur)
+	}
+
 	defer func() {
-		if hookTimer != nil {
-			hookTimer.Stop()
-		}
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 	}()
@@ -171,10 +162,7 @@ func buildFFmpegArgsNVENC(clips []Clip, audioIdx []int, fade time.Duration) []st
 	for _, c := range clips {
 		args = append(args,
 			// Helps avoid blocking / stalls in complex graphs
-			"-thread_queue_size", "1024",
-
-			// Real-time pacing (important if you use wall-clock timer in Go)
-			"-re",
+			"-thread_queue_size", "4096",
 
 			// Fast seek to approximate start
 			"-ss", fmt.Sprintf("%.3f", c.StartSec),
@@ -187,10 +175,11 @@ func buildFFmpegArgsNVENC(clips []Clip, audioIdx []int, fade time.Duration) []st
 
 	var b strings.Builder
 
+	// TODO: make clips within one file
 	for i, c := range clips {
 		// Video
 		// Trim exact duration; setpts; fifo (buffering)
-		fmt.Fprintf(&b, "[%d:v]trim=duration=%.3f,setpts=PTS-STARTPTS[v%d];", i, c.DurSec, i)
+		fmt.Fprintf(&b, "[%d:v]trim=duration=%.3f,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=pc,format=yuv420p[v%d];", i, c.DurSec, i)
 
 		ai := 0
 		if i < len(audioIdx) && audioIdx[i] >= 0 {
@@ -220,6 +209,7 @@ func buildFFmpegArgsNVENC(clips []Clip, audioIdx []int, fade time.Duration) []st
 		nextV := fmt.Sprintf("vxf%d", i)
 		nextA := fmt.Sprintf("axf%d", i)
 
+		// TODO: xfade on GPU (xfade_opencl)
 		fmt.Fprintf(&b,
 			"[%s][v%d]xfade=transition=fade:duration=%.3f:offset=%.3f[%s];",
 			outV, i, fadeSec, offset, nextV,
@@ -244,12 +234,12 @@ func buildFFmpegArgsNVENC(clips []Clip, audioIdx []int, fade time.Duration) []st
 
 		// Encode with GPU (NVENC)
 		"-c:v", "h264_nvenc",
-		"-preset", "p2",
+		"-preset", "p5",
 		"-tune", "ll",
 		"-rc", "cbr",
 		"-b:v", "25M",
 		"-maxrate", "25M",
-		"-bufsize", "4M",
+		"-bufsize", "12M",
 		"-g", "120",
 
 		// Audio AAC 128k

@@ -10,3 +10,5 @@ go.work.sum
 .env
 .idea/
 /state.json
+/.state.json*
+/logs.txt
