@@ -39,15 +39,15 @@ func BuildPlan(window time.Duration, highlights []*domain.Highlight, fade time.D
 	}
 
 	windowSec := window.Seconds()
-	slotSec := windowSec / float64(totalEvents)
 
 	if fade < 0 {
 		fade = 0
 	}
-	fadeSec := math.Min(fade.Seconds(), slotSec*0.2)
+
+	fadeSec := fade.Seconds()
 
 	// transition overlap compensation
-	clipSec := math.Max((windowSec+float64(totalEvents-1)*fadeSec)/float64(totalEvents), 7.5)
+	clipSec := math.Max((windowSec+float64(totalEvents-1)*fadeSec)/float64(totalEvents), 3.0)
 
 	raw := make([]interval, 0, totalEvents)
 
@@ -166,9 +166,38 @@ func BuildPlan(window time.Duration, highlights []*domain.Highlight, fade time.D
 	for _, c := range clips {
 		total += c.DurSec
 	}
+
+	allowedSum := windowSec + float64(len(clips)-1)*fadeSec
+	if allowedSum < 0 {
+		allowedSum = 0
+	}
+
+	if total > 0 && total > allowedSum {
+		factor := allowedSum / total
+		for i := range clips {
+			oldDur := clips[i].DurSec
+			newDur := oldDur * factor
+			if newDur < 1.0 {
+				newDur = 1.0
+			}
+			shift := (oldDur - newDur) / 2.0
+			clips[i].StartSec += shift
+			if clips[i].StartSec < 0 {
+				clips[i].StartSec = 0
+			}
+			clips[i].DurSec = newDur
+		}
+
+		total = 0.0
+		for _, c := range clips {
+			total += c.DurSec
+		}
+	}
+
 	if len(clips) > 1 {
 		total -= float64(len(clips)-1) * fadeSec
 	}
+
 	if total < 0 {
 		total = 0
 	}

@@ -63,7 +63,7 @@ func (s *Streamer) HandleStream(w http.ResponseWriter, r *http.Request) {
 
 		streamDuration = time.Duration(maxDur) * time.Second
 	} else {
-		streamDuration = valorant.PhaseDuration["shopping"]
+		streamDuration = valorant.PhaseDuration["shopping"] - 5*time.Second
 	}
 
 	var controlObs bool
